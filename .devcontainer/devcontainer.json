@@ -1,0 +1,47 @@
+// For format details, see https://aka.ms/devcontainer.json
+{
+  "name": "Telegram Find Prices",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.13-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/python:1": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "lts"
+    },
+    "ghcr.io/devcontainers/features/docker-in-docker:2": {}
+  },
+  "portsAttributes": {
+    "0-65535": { "onAutoForward": "ignore" }
+  },
+  "forwardPorts": [],
+
+  "postCreateCommand": "pip3 install --upgrade pip && pip3 install -r requirements.txt && uv sync && echo 'source /workspaces/telegram-find-prices/.venv/bin/activate' >> ~/.bashrc",
+
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "remote.autoForwardPorts": false,
+        "remote.otherPortsAttributes": { "onAutoForward": "ignore" },
+        "python.defaultInterpreterPath": "/workspaces/telegram-find-prices/.venv/bin/python",
+        "python.testing.pytestEnabled": true,
+        "python.testing.pytestArgs": ["tests"]
+      },
+      "mcp": {
+        "servers": {
+          "context7": {
+            "command": "npx",
+            "args": ["-y", "@upstash/context7-mcp"]
+          }
+        }
+      },
+      "extensions": [
+        "ms-python.debugpy",
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.vscode-python-envs",
+        "SonarSource.sonarlint-vscode",
+        "qwtel.sqlite-viewer",
+        "GitHub.copilot-chat"
+      ]
+    }
+  }
+}

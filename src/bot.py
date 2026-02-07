@@ -1,0 +1,84 @@
+"""
+Telegram Bot - Main entry point.
+"""
+
+import asyncio
+import logging
+from telethon import TelegramClient
+from telethon.errors import FloodWaitError
+
+logging.basicConfig(
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    level=logging.INFO,
+)
+log = logging.getLogger(__name__)
+from bot_commands import BotCommands
+from channel_listener import ChannelListener
+from client_commands import ClientCommands
+from config import Config
+from scheduler import DailySummaryScheduler
+from database import Base, engine, SessionLocal, run_migrations
+
+
+def create_client(session_name: str, api_id: int, api_hash: str) -> TelegramClient:
+    """Create a new Telegram client."""
+    return TelegramClient(session_name, api_id, api_hash)
+
+
+async def main():
+    """Main function to start the bot."""
+    cf = Config()
+    bot_token = cf.BOT_TOKEN
+    api_id = cf.API_ID
+    api_hash = cf.API_HASH
+    bot_session_name = cf.BOT_SESSION_NAME
+    client_session_name = cf.CLIENT_SESSION_NAME
+
+    Base.metadata.create_all(bind=engine)
+    run_migrations()
+
+    bot_client = create_client(bot_session_name, api_id, api_hash)
+    client = create_client(client_session_name, api_id, api_hash)
+    client_commands = ClientCommands(client, SessionLocal, bot_client)
+    bot_commands = BotCommands(bot_client, client_commands, SessionLocal)
+    if await bot_client.start(bot_token=bot_token):
+        log.info("Bot started!")
+        bot_commands.register_commands()
+    else:
+        log.error("Failed to start the bot.")
+        return
+
+    try:
+        if await client.start(phone=cf.PHONE_NUMBER):
+            log.info("Client started!")
+            listener = ChannelListener(client, bot_client, SessionLocal)
+            listener.register()
+            log.info("Channel listener active!")
+        else:
+            log.error("Failed to start the client.")
+            return
+    except FloodWaitError as e:
+        log.warning("Telegram requires a wait of %d seconds. Retrying...", e.seconds)
+        await asyncio.sleep(e.seconds)
+        if await client.start(phone=cf.PHONE_NUMBER):
+            log.info("Client started!")
+            listener = ChannelListener(client, bot_client, SessionLocal)
+            listener.register()
+            log.info("Channel listener active!")
+        else:
+            log.error("Failed to start the client.")
+            return
+
+    # Start daily summary scheduler
+    scheduler = DailySummaryScheduler(
+        bot_client, SessionLocal,
+        hour=cf.DAILY_SUMMARY_HOUR,
+        tz_name=cf.TIMEZONE,
+    )
+    scheduler.start()
+
+    await bot_client.run_until_disconnected()
+    await client.disconnect()
+
+if __name__ == "__main__":
+    asyncio.run(main())

@@ -1,0 +1,13 @@
+.env
+.env.*
+.git/
+data/
+*.session
+*.session-journal
+*.sqlite3
+__pycache__/
+.venv/
+.devcontainer/
+.pytest_cache/
+.ruff_cache/
+CLAUDE.md
