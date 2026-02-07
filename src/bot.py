@@ -5,7 +5,7 @@ Telegram Bot - Main entry point.
 import asyncio
 import logging
 from telethon import TelegramClient
-from telethon.errors import FloodWaitError
+from telethon.errors import FloodWaitError, AccessTokenExpiredError, AccessTokenInvalidError, ApiIdInvalidError, PhoneNumberInvalidError
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -41,11 +41,19 @@ async def main():
     client = create_client(client_session_name, api_id, api_hash)
     client_commands = ClientCommands(client, SessionLocal, bot_client)
     bot_commands = BotCommands(bot_client, client_commands, SessionLocal)
-    if await bot_client.start(bot_token=bot_token):
-        log.info("Bot started!")
-        bot_commands.register_commands()
-    else:
-        log.error("Failed to start the bot.")
+
+    try:
+        if await bot_client.start(bot_token=bot_token):
+            log.info("Bot started!")
+            bot_commands.register_commands()
+        else:
+            log.error("Failed to start the bot.")
+            return
+    except (AccessTokenExpiredError, AccessTokenInvalidError):
+        log.error("BOT_TOKEN is expired or invalid. Generate a new one via @BotFather and update .env")
+        return
+    except ApiIdInvalidError:
+        log.error("API_ID or API_HASH is invalid. Check your credentials at my.telegram.org and update .env")
         return
 
     try:
@@ -57,6 +65,9 @@ async def main():
         else:
             log.error("Failed to start the client.")
             return
+    except PhoneNumberInvalidError:
+        log.error("PHONE_NUMBER is invalid. Check your .env configuration.")
+        return
     except FloodWaitError as e:
         log.warning("Telegram requires a wait of %d seconds. Retrying...", e.seconds)
         await asyncio.sleep(e.seconds)
