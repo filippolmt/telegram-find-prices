@@ -240,3 +240,59 @@ def test_price_history_multiple_entries(db_session):
     assert len(entries) == 3
     backfill = [e for e in entries if e.source == "backfill"]
     assert len(backfill) == 1
+
+
+def test_remove_user_channel_keeps_channel(db_session):
+    """Removing a user-channel link does not delete the channel itself."""
+    user = User(id=1, user_id=100, username="pippo")
+    channel = Channel(identifier="offerte")
+    db_session.add_all([user, channel])
+    db_session.flush()
+
+    link = UserChannel(user_id=100, channel_id=channel.id)
+    db_session.add(link)
+    db_session.commit()
+
+    db_session.delete(link)
+    db_session.commit()
+
+    assert db_session.query(UserChannel).filter_by(user_id=100).first() is None
+    assert db_session.query(Channel).filter_by(identifier="offerte").one() is not None
+
+
+def test_remove_user_channel_other_users_unaffected(db_session):
+    """Removing one user's channel link doesn't affect other users."""
+    user1 = User(id=1, user_id=100, username="pippo")
+    user2 = User(id=2, user_id=200, username="pluto")
+    channel = Channel(identifier="offerte")
+    db_session.add_all([user1, user2, channel])
+    db_session.flush()
+
+    db_session.add(UserChannel(user_id=100, channel_id=channel.id))
+    db_session.add(UserChannel(user_id=200, channel_id=channel.id))
+    db_session.commit()
+
+    link = db_session.query(UserChannel).filter_by(user_id=100).first()
+    db_session.delete(link)
+    db_session.commit()
+
+    assert db_session.query(UserChannel).filter_by(user_id=100).first() is None
+    assert db_session.query(UserChannel).filter_by(user_id=200).first() is not None
+
+
+def test_user_lang_code_default(db_session):
+    """New user has lang_code='en' by default."""
+    user = User(id=1, user_id=100, username="pippo")
+    db_session.add(user)
+    db_session.commit()
+    result = db_session.get(User, 1)
+    assert result.lang_code == "en"
+
+
+def test_user_lang_code_custom(db_session):
+    """User can be created with a custom lang_code."""
+    user = User(id=1, user_id=100, username="pippo", lang_code="it")
+    db_session.add(user)
+    db_session.commit()
+    result = db_session.get(User, 1)
+    assert result.lang_code == "it"
