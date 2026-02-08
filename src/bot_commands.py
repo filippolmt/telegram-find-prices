@@ -12,7 +12,7 @@ from telethon import events, TelegramClient
 from sqlalchemy.orm import Session, sessionmaker
 from client_commands import ClientCommands
 from config import Config
-from models import User, Product, PriceHistory
+from models import User, Product, PriceHistory, UserChannel, Channel
 from translations import t, resolve_lang, DEFAULT_LANGUAGE
 
 _CHANNEL_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]{3,31}$")
@@ -170,6 +170,71 @@ class BotCommands:
                 return
 
             await event.respond(t("your_channels", lang, channels="\n".join(channels)))
+
+        @self.bot_client.on(events.NewMessage(pattern=r"^/remove_channel(?:\s|$)"))
+        async def remove_channel_command(event):
+            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
+            if user_id is None:
+                await event.respond(t("start_first", lang))
+                return
+            if not self._is_authorized(user_id):
+                await event.respond(t("not_authorized", lang))
+                return
+
+            with self._session_factory() as session:
+                user_channels = (
+                    session.query(Channel.id, Channel.identifier, Channel.title)
+                    .join(UserChannel, UserChannel.channel_id == Channel.id)
+                    .filter(UserChannel.user_id == user_id)
+                    .all()
+                )
+                if not user_channels:
+                    await event.respond(t("no_channels", lang))
+                    return
+
+                lines = []
+                channel_data = []
+                for i, ch in enumerate(user_channels, 1):
+                    display = f"{ch.title} ({ch.identifier})" if ch.title else ch.identifier
+                    lines.append(f"{i}. {display}")
+                    channel_data.append({"id": ch.id, "display": display})
+
+            client_event = event.client
+            await event.respond(t("remove_channel_prompt", lang, channels="\n".join(lines)))
+            try:
+                async with client_event.conversation(event.chat_id, timeout=60) as conv:
+                    resp = await conv.wait_event(events.NewMessage(from_users=user_id))
+                    choice = (resp.raw_text or "").strip()
+
+                    if choice.lower() in _CANCEL_KEYWORDS:
+                        await conv.send_message(t("operation_cancelled", lang))
+                        return
+
+                    try:
+                        idx = int(choice) - 1
+                    except ValueError:
+                        await conv.send_message(t("invalid_choice", lang, command="/remove_channel"))
+                        return
+
+                    if idx < 0 or idx >= len(channel_data):
+                        await conv.send_message(t("number_out_of_range", lang, command="/remove_channel"))
+                        return
+
+            except AsyncTimeoutError:
+                await event.respond(t("timed_out", lang, command="/remove_channel"))
+                return
+
+            chosen = channel_data[idx]
+            log.info("/remove_channel '%s' from user_id=%s", chosen["display"], user_id)
+            with self._session_factory() as session:
+                link = session.query(UserChannel).filter_by(
+                    user_id=user_id, channel_id=chosen["id"]
+                ).first()
+                if link:
+                    session.delete(link)
+                    session.commit()
+
+            await event.respond(t("remove_channel_removed", lang, channel=chosen["display"]))
 
         @self.bot_client.on(events.NewMessage(pattern=r"^/watch(?:\s|$)"))
         async def watch_command(event):

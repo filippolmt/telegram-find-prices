@@ -83,6 +83,10 @@ MESSAGES = {
         "leave_channel_success": "Left channel: {channel}",
         "leave_channel_failed": "Error leaving channel. Please try again later.",
 
+        # /remove_channel
+        "remove_channel_prompt": "Which channel do you want to remove? Enter the number:\n{channels}\n\n/cancel to abort",
+        "remove_channel_removed": "Channel removed: {channel}",
+
         # Daily summary
         "summary_header": "Daily summary ({count} matches):",
         "summary_product": "\n {name} ({count} matches):",
@@ -165,6 +169,10 @@ MESSAGES = {
         "join_channel_failed": "Impossibile unirsi al canale. Controlla il link.",
         "leave_channel_success": "Canale abbandonato: {channel}",
         "leave_channel_failed": "Errore nell'abbandonare il canale. Riprova pi\u00f9 tardi.",
+
+        # /remove_channel
+        "remove_channel_prompt": "Quale canale vuoi rimuovere? Inserisci il numero:\n{channels}\n\n/annulla per annullare",
+        "remove_channel_removed": "Canale rimosso: {channel}",
 
         # Daily summary
         "summary_header": "Riepilogo giornaliero ({count} corrispondenze):",
