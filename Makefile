@@ -1,4 +1,4 @@
-.PHONY: build run auth test test-v stop logs clean shell
+.PHONY: build run run-d auth gen-session test test-v test-one shell logs stop clean
 
 # Build Docker image (only when dependencies change)
 build:
@@ -14,7 +14,11 @@ run-d: build
 
 # First-time Telegram client authentication (interactive, one-time only)
 auth:
-	docker compose run --rm -it test uv run python src/auth.py
+	docker compose run --rm -it test python src/auth.py
+
+# Generate StringSession for production (interactive, one-time only)
+gen-session:
+	docker compose run --rm -it test python src/generate_string_session.py
 
 # Run all tests (src/ and tests/ mounted as volumes, no rebuild)
 test:
@@ -22,11 +26,11 @@ test:
 
 # Run tests with verbose output
 test-v:
-	docker compose run --rm test uv run pytest tests/ -v
+	docker compose run --rm test pytest tests/ -v
 
 # Run a single test (e.g.: make test-one T=tests/test_models.py::test_create_user)
 test-one:
-	docker compose run --rm test uv run pytest $(T) -v
+	docker compose run --rm test pytest $(T) -v
 
 # Shell inside the container
 shell:

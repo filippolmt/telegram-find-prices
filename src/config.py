@@ -24,6 +24,7 @@ class Config:
     BOT_SESSION_NAME = str(DATA_DIR / os.getenv("BOT_SESSION_NAME", "bot_session"))
     BOT_TOKEN = os.getenv("BOT_TOKEN", "")
     CLIENT_SESSION_NAME = str(DATA_DIR / os.getenv("CLIENT_SESSION_NAME", "client_session"))
+    CLIENT_SESSION_STRING = os.getenv("CLIENT_SESSION_STRING", "")
     DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'db.sqlite3'}")
     PHONE_NUMBER = os.getenv("PHONE_NUMBER", "")
     USERNAME = os.getenv("USERNAME", "")
