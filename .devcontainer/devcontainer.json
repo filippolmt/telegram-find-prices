@@ -1,7 +1,7 @@
 // For format details, see https://aka.ms/devcontainer.json
 {
   "name": "Telegram Find Prices",
-  "image": "mcr.microsoft.com/devcontainers/python:3-3.13-bookworm",
+  "image": "mcr.microsoft.com/devcontainers/python:3-3.14-bookworm",
   "features": {
     "ghcr.io/devcontainers/features/python:1": {},
     "ghcr.io/devcontainers/features/node:1": {
@@ -14,7 +14,7 @@
   },
   "forwardPorts": [],
 
-  "postCreateCommand": "pip3 install --upgrade pip && pip3 install -r requirements.txt && uv sync && echo 'source /workspaces/telegram-find-prices/.venv/bin/activate' >> ~/.bashrc",
+  "postCreateCommand": "curl -LsSf https://astral.sh/uv/install.sh | sh && source $HOME/.local/bin/env && uv sync && echo 'source /workspaces/telegram-find-prices/.venv/bin/activate' >> ~/.bashrc",
 
   "customizations": {
     "vscode": {
