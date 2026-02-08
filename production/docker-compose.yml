@@ -1,0 +1,19 @@
+services:
+  bot:
+    image: ghcr.io/filippolmt/telegram-find-prices:latest
+    environment:
+      API_ID: ${API_ID}
+      API_HASH: ${API_HASH}
+      BOT_TOKEN: ${BOT_TOKEN}
+      PHONE_NUMBER: ${PHONE_NUMBER}
+      USERNAME: ${USERNAME:-}
+      ALLOWED_USERS: ${ALLOWED_USERS:-}
+      TIMEZONE: ${TIMEZONE:-UTC}
+      DAILY_SUMMARY_HOUR: ${DAILY_SUMMARY_HOUR:-21}
+      BOT_SESSION_NAME: ${BOT_SESSION_NAME:-bot_session}
+      CLIENT_SESSION_NAME: ${CLIENT_SESSION_NAME:-client_session}
+      CLIENT_SESSION_STRING: ${CLIENT_SESSION_STRING:-}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:///data/db.sqlite3}
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

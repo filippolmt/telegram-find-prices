@@ -11,17 +11,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 All operations go through the Makefile (Docker-based):
 
 ```bash
-make auth       # First-time interactive Telegram authentication
-make run-d      # Start bot in background
-make run        # Start bot in foreground
-make logs       # Tail bot logs
-make stop       # Stop containers
-make test       # Run all tests
-make test-v     # Run tests verbose
+make auth        # First-time file-based Telegram authentication
+make gen-session # Generate StringSession for production (interactive, one-time)
+make run-d       # Start bot in background
+make run         # Start bot in foreground
+make logs        # Tail bot logs
+make stop        # Stop containers
+make test        # Run all tests
+make test-v      # Run tests verbose
 make test-one T=tests/test_models.py  # Run single test file
-make shell      # Shell into container
-make build      # Rebuild Docker image
-make clean      # Remove containers, images, volumes
+make shell       # Shell into container
+make build       # Rebuild Docker image
+make clean       # Remove containers, images, volumes
 ```
 
 Source code is mounted as Docker volumes (`src/`, `tests/`), so code changes are picked up without rebuilding. The Dockerfile uses a multi-stage build: uv is copied from the official `ghcr.io/astral-sh/uv` image, dependencies are compiled in a builder stage (with gcc for packages like aiohttp), and only the venv and source are copied to the final slim image.
@@ -33,7 +34,7 @@ Source code is mounted as Docker volumes (`src/`, `tests/`), so code changes are
 The bot runs **two separate Telegram clients** concurrently:
 
 - **Bot client** (`bot_session`): Receives user commands. Powered by a Telegram Bot Token.
-- **User client** (`client_session`): Performs privileged actions (joining/leaving channels, reading channel messages) as a real Telegram user account. Requires phone number auth on first run via `make auth`.
+- **User client** (`client_session`): Performs privileged actions (joining/leaving channels, reading channel messages) as a real Telegram user account. Supports two auth modes: file-based session via `make auth`, or `StringSession` via `CLIENT_SESSION_STRING` env var (generated with `make gen-session`). StringSession is preferred for production/containers.
 
 `bot.py:main()` creates both clients, wires them together, starts the daily summary scheduler, and runs `bot_client.run_until_disconnected()`.
 
@@ -69,7 +70,11 @@ Source files in `src/` import each other as top-level modules (e.g., `from confi
 
 ### Runtime Files
 
-All runtime data (SQLite DB, Telethon session files) stored in `data/` (gitignored). File permissions restricted to `600`.
+All runtime data (SQLite DB, Telethon session files) stored in `data/` (gitignored). File permissions restricted to `600`. When `CLIENT_SESSION_STRING` is set, no session file is created for the user client.
+
+### CI/CD & Production
+
+A GitHub Actions workflow (`.github/workflows/docker-publish.yml`) builds and pushes the Docker image to `ghcr.io/filippolmt/telegram-find-prices` when a version tag (`v*`) is pushed, tagged with the semver version and `latest`. PRs that modify Docker-related files trigger a build-only check. The `production/` folder contains a standalone `docker-compose.yml` that pulls the pre-built image and a `.env.example` template. Variables are resolved via Docker Compose `${VAR}` interpolation with precedence: host environment > `.env` file in `production/` > defaults in compose file.
 
 ## Environment Variables (.env at project root)
 
@@ -85,6 +90,7 @@ All runtime data (SQLite DB, Telethon session files) stored in `data/` (gitignor
 | `DAILY_SUMMARY_HOUR` | No | Hour for daily summary (default: `21`) |
 | `BOT_SESSION_NAME` | No | Session file name (default: `bot_session`) |
 | `CLIENT_SESSION_NAME` | No | Session file name (default: `client_session`) |
+| `CLIENT_SESSION_STRING` | No | Telethon StringSession string (generated with `make gen-session`). If set, replaces file-based session |
 | `DATABASE_URL` | No | SQLAlchemy URL (default: `sqlite:///data/db.sqlite3`) |
 
 ## Security
@@ -100,8 +106,9 @@ All runtime data (SQLite DB, Telethon session files) stored in `data/` (gitignor
 
 ## Testing
 
-Tests use pytest with in-memory SQLite (no Telegram credentials needed). 75 tests across four files:
+Tests use pytest with in-memory SQLite (no Telegram credentials needed). 79 tests across five files:
 
+- `test_bot.py` — `create_client()` file-based vs StringSession selection
 - `test_models.py` — DB models CRUD, constraints, pause/resume, categories, price history
 - `test_matching.py` — `check_product_match()` logic including fuzzy matching (extracted from ChannelListener for testability)
 - `test_price_parser.py` — European price format extraction

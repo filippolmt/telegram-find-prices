@@ -5,6 +5,7 @@ Telegram Bot - Main entry point.
 import asyncio
 import logging
 from telethon import TelegramClient
+from telethon.sessions import StringSession
 from telethon.errors import FloodWaitError, AccessTokenExpiredError, AccessTokenInvalidError, ApiIdInvalidError, PhoneNumberInvalidError
 
 logging.basicConfig(
@@ -20,8 +21,11 @@ from scheduler import DailySummaryScheduler
 from database import Base, engine, SessionLocal, run_migrations
 
 
-def create_client(session_name: str, api_id: int, api_hash: str) -> TelegramClient:
-    """Create a new Telegram client."""
+def create_client(session_name: str, api_id: int, api_hash: str, session_string: str = "") -> TelegramClient:
+    """Create a new Telegram client. Uses StringSession if session_string is provided."""
+    session_string = session_string.strip()
+    if session_string:
+        return TelegramClient(StringSession(session_string), api_id, api_hash)
     return TelegramClient(session_name, api_id, api_hash)
 
 
@@ -38,7 +42,7 @@ async def main():
     run_migrations()
 
     bot_client = create_client(bot_session_name, api_id, api_hash)
-    client = create_client(client_session_name, api_id, api_hash)
+    client = create_client(client_session_name, api_id, api_hash, session_string=cf.CLIENT_SESSION_STRING)
     client_commands = ClientCommands(client, SessionLocal, bot_client)
     bot_commands = BotCommands(bot_client, client_commands, SessionLocal)
 
