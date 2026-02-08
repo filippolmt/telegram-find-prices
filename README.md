@@ -6,6 +6,7 @@ Telegram bot that monitors channels and notifies you when a product you're looki
 
 - `/start` - Register your account
 - `/add_channel` - Add a channel to monitor (public or invite link)
+- `/remove_channel` - Remove a channel from monitoring (keeps the Telegram subscription)
 - `/list_channels` - Show your monitored channels
 - `/watch` - Add a product to monitor (with optional target price and category)
 - `/list_products` - Show your monitored products
@@ -62,7 +63,26 @@ make auth
 
 This starts an interactive session where Telegram sends a verification code to your phone. Enter the code when prompted. The session file is saved in `data/` and reused on subsequent runs.
 
-### 4. Start the bot
+### 4. Register bot commands with BotFather
+
+Open [@BotFather](https://t.me/BotFather), select your bot with `/mybots`, then **Edit Bot** > **Edit Commands** and paste:
+
+```
+start - Register your account
+add_channel - Add a channel to monitor
+remove_channel - Remove a channel from monitoring
+list_channels - Show your monitored channels
+watch - Add a product to monitor
+list_products - Show your monitored products
+unwatch - Remove a product from monitoring
+history - View price history for a product
+pause - Pause notifications
+resume - Resume notifications
+stats - View your statistics
+list_categories - Show products grouped by category
+```
+
+### 5. Start the bot
 
 ```bash
 make run-d
