@@ -4,7 +4,6 @@ Telegram user client commands (join/leave channels, backfill).
 
 import logging
 
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError, RPCError, UserAlreadyParticipantError
@@ -14,8 +13,8 @@ from telethon.tl.functions.messages import (
     ImportChatInviteRequest,
 )
 
-from channel_listener import check_product_match
-from models import Channel, PriceHistory, Product, User, UserChannel
+from match_recorder import MatchRecorder, build_message_link
+from models import Channel, Product, UserChannel
 from translations import DEFAULT_LANGUAGE, t
 
 log = logging.getLogger(__name__)
@@ -27,7 +26,7 @@ class ClientCommands:
     def __init__(self, client: TelegramClient, db_session_factory: sessionmaker, bot_client: TelegramClient = None):
         self.client = client
         self._session_factory = db_session_factory
-        self.bot_client = bot_client
+        self._recorder = MatchRecorder(bot_client, db_session_factory)
 
     async def list_channels(self, user_id: int) -> list[str]:
         """Return the list of channels associated with the given user."""
@@ -106,17 +105,12 @@ class ClientCommands:
 
         Returns the number of matches found.
         """
-        import asyncio
-
         with self._session_factory() as session:
             products = session.query(Product).filter_by(user_id=user_id).all()
-            if not products:
-                return 0
-            product_data = [{"id": p.id, "name": p.name, "target_price": p.target_price, "user_id": p.user_id} for p in products]
-            user = session.query(User).filter_by(user_id=user_id).first()
-            user_lang = user.lang_code if user else DEFAULT_LANGUAGE
-            # Read once: a /pause sent while the backfill runs is not honoured.
-            user_paused = bool(user and user.paused)
+            # Detached so the recorder can read them after this session closes.
+            session.expunge_all()
+        if not products:
+            return 0
 
         matches_found = 0
         try:
@@ -132,65 +126,10 @@ class ClientCommands:
             async for message in self.client.iter_messages(entity, limit=limit):
                 if not message.text:
                     continue
-
-                for pd in product_data:
-                    # Create a Product-like object for check_product_match
-                    class _FakeProduct:
-                        pass
-                    fp = _FakeProduct()
-                    fp.name = pd["name"]
-                    fp.target_price = pd["target_price"]
-
-                    result = check_product_match(fp, message.text)
-                    if result is None:
-                        continue
-
-                    # Build message link
-                    msg_link = None
-                    if channel_username:
-                        msg_link = f"https://t.me/{channel_username}/{message.id}"
-                    elif channel_id:
-                        clean_id = str(channel_id)
-                        if clean_id.startswith("-100"):
-                            clean_id = clean_id[4:]
-                        msg_link = f"https://t.me/c/{clean_id}/{message.id}"
-
-                    with self._session_factory() as session:
-                        session.add(PriceHistory(
-                            product_id=pd["id"],
-                            user_id=pd["user_id"],
-                            price=result["price_found"],
-                            channel=channel_name,
-                            message_text=message.text[:500],
-                            message_link=msg_link,
-                            source="backfill",
-                        ))
-                        try:
-                            session.commit()
-                        except IntegrityError:
-                            session.rollback()
-                            log.info("Backfill match for product id=%s not saved (integrity error, likely unwatched), skipped", pd["id"])
-                            continue
-
-                    matches_found += 1
-
-                    # Notify via bot
-                    if self.bot_client and not user_paused:
-                        if result["price_found"] is not None:
-                            price_line = t("notify_backfill_price_line", user_lang, price=result['price_found'], target=result['target_price'])
-                        else:
-                            price_line = ""
-                        link_line = f"\n\n {msg_link}" if msg_link else ""
-                        notification = t(
-                            "notify_backfill_match", user_lang,
-                            product=pd['name'], channel=channel_name,
-                            price_line=price_line, text=message.text[:300], link_line=link_line,
-                        )
-                        try:
-                            await self.bot_client.send_message(pd["user_id"], notification)
-                            await asyncio.sleep(0.5)  # Rate limit
-                        except Exception as e:
-                            log.error("Error sending backfill notification: %s", e)
+                message_link = build_message_link(channel_username, channel_id, message.id)
+                for product in products:
+                    if await self._recorder.record(product, message.text, channel_name, message_link, "backfill"):
+                        matches_found += 1
 
         except FloodWaitError as e:
             log.warning("FloodWait during backfill: waiting %ds", e.seconds)
