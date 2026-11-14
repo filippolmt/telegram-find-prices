@@ -38,6 +38,12 @@ async def main():
     bot_session_name = cf.BOT_SESSION_NAME
     client_session_name = cf.CLIENT_SESSION_NAME
 
+    if not cf.ALLOWED_USERS and not cf.ALLOW_ALL_USERS:
+        log.warning("ALLOWED_USERS is empty: the bot will reject every user. "
+                    "Set ALLOWED_USERS, or ALLOW_ALL_USERS=true to open it to everyone.")
+    elif not cf.ALLOWED_USERS:
+        log.warning("ALLOW_ALL_USERS=true: any Telegram user can drive this account.")
+
     Base.metadata.create_all(bind=engine)
     run_migrations()
 

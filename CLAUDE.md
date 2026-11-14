@@ -40,7 +40,7 @@ The bot runs **two separate Telegram clients** concurrently:
 
 ### Key Classes
 
-- **`BotCommands`** (`bot_commands.py`) — Registers Telethon event handlers on the bot client. All commands check `ALLOWED_USERS` authorization. Validates channel identifiers with regex. Supports invite links (`t.me/+HASH`). Auto-detects user language from `sender.lang_code` and responds accordingly. Commands: `/start`, `/add_channel`, `/list_channels`, `/watch`, `/list_products`, `/unwatch`, `/history`, `/pause`, `/resume`, `/stats`, `/list_categories`.
+- **`BotCommands`** (`bot_commands.py`) — Registers Telethon event handlers on the bot client. All commands check `ALLOWED_USERS` authorization (fail-closed). Validates channel identifiers with regex. Supports invite links (`t.me/+HASH`). Auto-detects user language from `sender.lang_code` and responds accordingly. Commands: `/start`, `/add_channel`, `/list_channels`, `/watch`, `/list_products`, `/unwatch`, `/history`, `/pause`, `/resume`, `/stats`, `/list_categories`.
 - **`ClientCommands`** (`client_commands.py`) — Wraps Telethon channel operations (`JoinChannelRequest`, `ImportChatInviteRequest`, `LeaveChannelRequest`). Supports both public channels (username) and private channels (invite links). `list_channels()` is filtered per-user via DB join and shows channel title for private channels. `backfill_channel()` scans the last N messages of a channel for product matches. Error messages are sanitized (no RPC details leaked to users).
 - **`ChannelListener`** (`channel_listener.py`) — Listens for new messages in channels. Filters products by user-channel subscription (joins Product -> UserChannel -> Channel). Matches by both username and numeric channel ID (for private channels). Uses `check_product_match()` for testable matching logic with fuzzy matching (hyphens, underscores, extra spaces). Saves matches to PriceHistory and includes direct message links in notifications.
 - **`DailySummaryScheduler`** (`scheduler.py`) — Sends a daily summary of matches found to non-paused users at a configurable hour and timezone. Uses `zoneinfo.ZoneInfo` for timezone support.
@@ -70,7 +70,7 @@ Source files in `src/` import each other as top-level modules (e.g., `from confi
 
 ### Runtime Files
 
-All runtime data (SQLite DB, Telethon session files) stored in `data/` (gitignored). File permissions restricted to `600`. When `CLIENT_SESSION_STRING` is set, no session file is created for the user client.
+All runtime data (SQLite DB, Telethon session files) stored in `data/` (gitignored). Files are created owner-only (`600`/`700`) via `os.umask(0o077)` in `config.py`; files created before that change keep their old permissions. When `CLIENT_SESSION_STRING` is set, no session file is created for the user client.
 
 ### CI/CD & Production
 
@@ -85,7 +85,8 @@ A GitHub Actions workflow (`.github/workflows/docker-publish.yml`) builds and pu
 | `BOT_TOKEN` | Yes | Bot token from @BotFather |
 | `PHONE_NUMBER` | Yes | Phone number for user client auth |
 | `USERNAME` | No | Telegram username |
-| `ALLOWED_USERS` | No | Comma-separated numeric user IDs (empty = open to all) |
+| `ALLOWED_USERS` | No | Comma-separated numeric user IDs. Empty = nobody is authorized (fail-closed) |
+| `ALLOW_ALL_USERS` | No | `true` opens the bot to every Telegram user when `ALLOWED_USERS` is empty (default: off) |
 | `TIMEZONE` | No | Timezone for daily summary (default: `UTC`) |
 | `DAILY_SUMMARY_HOUR` | No | Hour for daily summary (default: `21`) |
 | `BOT_SESSION_NAME` | No | Session file name (default: `bot_session`) |
@@ -97,7 +98,9 @@ A GitHub Actions workflow (`.github/workflows/docker-publish.yml`) builds and pu
 
 - Docker container runs as non-root user (`appuser`)
 - `.dockerignore` excludes `.env`, `.git/`, `data/`, session files
-- Bot commands require `ALLOWED_USERS` authorization (if configured)
+- Bot commands require `ALLOWED_USERS` authorization; empty means fail-closed unless `ALLOW_ALL_USERS=true`
+- Unauthorized senders are never written to the DB
+- Invite hashes are logged truncated (they grant channel access)
 - Channel identifiers validated with regex before passing to Telegram API
 - Invite hashes validated with alphanumeric regex
 - RPC errors logged server-side, generic messages returned to users
@@ -106,8 +109,9 @@ A GitHub Actions workflow (`.github/workflows/docker-publish.yml`) builds and pu
 
 ## Testing
 
-Tests use pytest with in-memory SQLite (no Telegram credentials needed). 79 tests across five files:
+Tests use pytest with in-memory SQLite (no Telegram credentials needed). Tests across six files:
 
+- `test_authorization.py` — `ALLOWED_USERS` parsing, fail-closed `_is_authorized()`, unauthorized senders not persisted
 - `test_bot.py` — `create_client()` file-based vs StringSession selection
 - `test_models.py` — DB models CRUD, constraints, pause/resume, categories, price history
 - `test_matching.py` — `check_product_match()` logic including fuzzy matching (extracted from ChannelListener for testability)

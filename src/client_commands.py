@@ -69,7 +69,8 @@ class ClientCommands:
                 except Exception:
                     pass
         except RPCError as e:
-            log.error("JoinChannel error for '%s': %s", channel_identifier or invite_hash, e)
+            target = channel_identifier or f"invite {invite_hash[:4]}…"
+            log.error("JoinChannel error for '%s': %s", target, e)
             return False, t("join_channel_failed", lang), ""
 
         with self._session_factory() as session:

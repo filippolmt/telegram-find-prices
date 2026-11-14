@@ -35,12 +35,16 @@ class BotCommands:
         self.client_commands = client_commands
         self._session_factory = db_session_factory
         self._allowed_users = Config.ALLOWED_USERS
+        self._allow_all = Config.ALLOW_ALL_USERS
 
     def _is_authorized(self, user_id: int | None) -> bool:
-        """Check if user is authorized. If ALLOWED_USERS is empty, everyone is allowed."""
-        if not self._allowed_users:
-            return True
-        return user_id in self._allowed_users
+        """Check if user is authorized. Fails closed: an empty ALLOWED_USERS
+        rejects everyone unless ALLOW_ALL_USERS is explicitly enabled."""
+        if user_id is None:
+            return False
+        if self._allowed_users:
+            return user_id in self._allowed_users
+        return self._allow_all
 
     async def register_user_if_not_exists(self, event: events.NewMessage.Event) -> tuple[Optional[str], Optional[int], str, bool]:
         """Register the sender if not already registered.
@@ -54,6 +58,9 @@ class BotCommands:
 
         if user_id is None or username is None:
             return None, None, DEFAULT_LANGUAGE, False
+        if not self._is_authorized(user_id):
+            # Never persist strangers: callers reject them on their own auth check
+            return username, user_id, sender_lang, False
 
         with self._session_factory() as session:
             existing = session.get(User, user_id)
@@ -134,7 +141,8 @@ class BotCommands:
                 if not _INVITE_HASH_RE.match(invite_hash):
                     await event.respond(t("invalid_invite_link", lang))
                     return
-                log.info("/add_channel invite_hash='%s' from user_id=%s", invite_hash, user_id)
+                # The invite hash grants channel access: never log it in full
+                log.info("/add_channel invite_hash='%s…' from user_id=%s", invite_hash[:4], user_id)
                 success, result, db_id = await self.client_commands.join_channel("", user_id, invite_hash=invite_hash, lang=lang)
             else:
                 if not _CHANNEL_RE.match(channel_identifier):

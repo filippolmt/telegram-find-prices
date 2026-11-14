@@ -2,9 +2,15 @@
 Bot configuration loaded from environment variables.
 """
 
+import logging
 import os
 from pathlib import Path
 from dotenv import load_dotenv
+
+log = logging.getLogger(__name__)
+
+# Session files and the DB grant account access: create every runtime file owner-only (600/700)
+os.umask(0o077)
 
 # Project directory (one level above src/)
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -15,6 +21,15 @@ DATA_DIR.mkdir(exist_ok=True)
 
 # Load environment variables from .env at project root
 load_dotenv(BASE_DIR / ".env")
+
+
+def parse_allowed_users(raw: str) -> list[int]:
+    """Parse comma-separated numeric Telegram user IDs, warning about invalid entries."""
+    entries = [e.strip() for e in raw.split(",") if e.strip()]
+    invalid = [e for e in entries if not e.isdigit()]
+    if invalid:
+        log.warning("ALLOWED_USERS: ignoring non-numeric entries %s (use numeric user IDs)", invalid)
+    return [int(e) for e in entries if e.isdigit()]
 
 
 class Config:
@@ -28,10 +43,8 @@ class Config:
     DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DATA_DIR / 'db.sqlite3'}")
     PHONE_NUMBER = os.getenv("PHONE_NUMBER", "")
     USERNAME = os.getenv("USERNAME", "")
-    ALLOWED_USERS = [
-        int(uid.strip())
-        for uid in os.getenv("ALLOWED_USERS", "").split(",")
-        if uid.strip().isdigit()
-    ]
+    ALLOWED_USERS = parse_allowed_users(os.getenv("ALLOWED_USERS", ""))
+    # Explicit opt-in to an open bot; an empty ALLOWED_USERS alone rejects everyone
+    ALLOW_ALL_USERS = os.getenv("ALLOW_ALL_USERS", "").strip().lower() == "true"
     TIMEZONE = os.getenv("TIMEZONE", "UTC")
     DAILY_SUMMARY_HOUR = int(os.getenv("DAILY_SUMMARY_HOUR", "21"))
