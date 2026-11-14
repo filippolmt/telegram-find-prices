@@ -5,36 +5,22 @@ description = "Telegram bot to monitor channels for product price deals"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "aiohappyeyeballs>=2.6.1",
-    "aiohttp>=3.12.15",
-    "aiosignal>=1.4.0",
-    "aiosqlite>=0.21.0",
-    "alembic>=1.16.5",
-    "asyncio>=4.0.0",
-    "attrs>=25.3.0",
-    "frozenlist>=1.7.0",
-    "idna>=3.10",
-    "multidict>=6.6.4",
-    "propcache>=0.3.2",
-    "pyaes>=1.6.1",
-    "pyasn1>=0.6.1",
-    "python-dotenv>=1.1.1",
-    "rsa>=4.9.1",
-    "sqlalchemy>=2.0.43",
-    "telethon>=1.42.0",
-    "yarl>=1.20.1",
+    "python-dotenv>=1.2.4",
+    "sqlalchemy>=2.1.8",
+    "telethon>=1.45.0",
 ]
 
 [dependency-groups]
 dev = [
-    "pytest>=8.0.0",
-    "pytest-asyncio>=0.24.0",
+    "pytest>=9.2.0",
+    "pytest-asyncio>=1.5.0",
     "ruff>=0.17.5",
-    "watchdog>=6.0.0",
+    "watchdog>=7.1.0",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
 
 [tool.ruff.lint]

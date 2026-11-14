@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**telegram-find-prices** — Telegram bot (Python 3.14) that monitors Telegram channels for product price offers and notifies users. Built with Telethon 1.42 (Telegram MTProto client) and SQLAlchemy (SQLite ORM). Runs in Docker.
+**telegram-find-prices** — Telegram bot (Python 3.14) that monitors Telegram channels for product price offers and notifies users. Built with Telethon 1.45 (Telegram MTProto client) and SQLAlchemy 2.1 (SQLite ORM). Runs in Docker.
 
 ## Commands
 
@@ -26,7 +26,7 @@ make build       # Rebuild Docker image
 make clean       # Remove containers, images, volumes
 ```
 
-Source code is mounted as Docker volumes (`src/`, `tests/`), so code changes are picked up without rebuilding. The Dockerfile uses a multi-stage build: uv is copied from the official `ghcr.io/astral-sh/uv` image, dependencies are compiled in a builder stage (with gcc for packages like aiohttp), and only the venv and source are copied to the final slim image.
+Source code is mounted as Docker volumes (`src/`, `tests/`), so code changes are picked up without rebuilding. The Dockerfile uses a multi-stage build: uv is copied from the official `ghcr.io/astral-sh/uv` image, dependencies are installed in a builder stage (all wheels, no compiler needed), and only the venv and source are copied to the final slim image.
 
 ## Architecture
 
