@@ -19,7 +19,7 @@ Two Telegram clients run in one process, wired in `bot.py:main()`:
 
 - Classes take a `sessionmaker` factory, never a `Session`.
 - Modules in `src/` import each other as top-level modules (`from config import Config`); `tests/conftest.py` puts `src/` on `sys.path`.
-- Schema changes go in `run_migrations()` in `database.py` (adds missing columns at startup). There is no Alembic.
+- Schema changes go in `run_migrations()` in `database.py` (adds missing columns and removes orphaned rows at startup). There is no Alembic.
 - Code, comments and logs are in English. User-facing strings live only in `src/translations.py`; to add a language, add its code to `SUPPORTED_LANGUAGES` and a full `MESSAGES` entry. `test_translations.py` fails on missing keys.
 - Runtime files (`data/`: DB, sessions) are created `600`/`700` by `os.umask(0o077)` in `config.py`.
 - `filterwarnings = ["error"]` in `pyproject.toml`: a new warning fails the suite.

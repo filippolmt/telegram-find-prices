@@ -168,7 +168,8 @@ class ClientCommands:
                         try:
                             session.commit()
                         except IntegrityError:
-                            log.info("Product id=%s unwatched during backfill, match skipped", pd["id"])
+                            session.rollback()
+                            log.info("Backfill match for product id=%s not saved (integrity error, likely unwatched), skipped", pd["id"])
                             continue
 
                     matches_found += 1

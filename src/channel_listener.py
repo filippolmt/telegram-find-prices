@@ -108,6 +108,7 @@ class ChannelListener:
                         .join(User, User.user_id == Product.user_id)
                         .filter(Channel.identifier.in_(possible_ids))
                         .filter(User.paused == False)  # noqa: E712
+                        .order_by(Product.id)
                         .all()
                     )
                 else:
@@ -135,7 +136,7 @@ class ChannelListener:
                         session.commit()
                     except IntegrityError:
                         session.rollback()
-                        log.info("Product id=%s unwatched before its match was saved, skipped", product.id)
+                        log.info("Realtime match for product id=%s not saved (integrity error, likely unwatched), skipped", product.id)
                         continue
 
                     if result["price_found"] is not None:
