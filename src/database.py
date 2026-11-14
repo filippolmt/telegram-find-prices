@@ -65,9 +65,13 @@ def run_migrations():
                 conn.execute(text("ALTER TABLE channels ADD COLUMN title VARCHAR"))
                 log.info("Migration: added column channels.title")
 
-        # price_history rows of deleted products, left before foreign keys were enforced
-        removed = conn.execute(text(
-            "DELETE FROM price_history WHERE product_id NOT IN (SELECT id FROM products)"
-        )).rowcount
-        if removed:
-            log.info("Migration: removed %d orphaned price_history rows", removed)
+        # Rows with dangling references, left before foreign keys were enforced.
+        # One pass suffices: every foreign key cascades, so deleting a row cannot orphan another.
+        if engine.dialect.name == "sqlite":
+            removed = 0
+            # A row with two dangling references is listed twice; the second delete matches nothing.
+            for table, rowid, _parent, _fkid in conn.exec_driver_sql("PRAGMA foreign_key_check").fetchall():
+                # table comes from SQLite's own schema, not from user input
+                removed += conn.exec_driver_sql(f'DELETE FROM "{table}" WHERE rowid = ?', (rowid,)).rowcount
+            if removed:
+                log.info("Migration: removed %d orphaned rows", removed)
