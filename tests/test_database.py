@@ -5,6 +5,7 @@ Tests for database.run_migrations().
 from sqlalchemy import text
 
 import database
+from database import Base
 from models import PriceHistory, Product, User, UserChannel
 
 
@@ -45,3 +46,9 @@ def test_migration_removes_rows_with_dangling_references(db_engine, db_session_f
         assert [(h.product_id, h.message_text) for h in session.query(PriceHistory)] == [(kept_product_id, "kept")]
         assert [p.name for p in session.query(Product)] == ["airpods"]
         assert session.query(UserChannel).count() == 0
+
+
+def test_every_foreign_key_cascades():
+    # run_migrations() deletes orphaned parents in one pass; a key without CASCADE would fail that at startup.
+    assert [str(fk.parent) for table in Base.metadata.tables.values() for fk in table.foreign_keys
+            if fk.ondelete != "CASCADE"] == []
