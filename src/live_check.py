@@ -29,7 +29,7 @@ USER_ID = 1
 
 
 class PrintBot:
-    async def send_message(self, user_id, text):
+    async def send_message(self, user_id, text, parse_mode=None):
         print(f"\n--- notification to user {user_id} ---\n{text[:400]}\n---")
 
 
@@ -87,7 +87,7 @@ async def main() -> int:
         await commands.backfill_channel(identifier, USER_ID, limit=args.limit)
         # Replay the same messages through the Realtime handler, as NewMessage events would arrive
         async for message in client.iter_messages(entity, limit=args.limit):
-            event = SimpleNamespace(raw_text=message.raw_text, id=message.id, get_chat=lambda e=entity: _resolved(e))
+            event = SimpleNamespace(message=message, id=message.id, get_chat=lambda e=entity: _resolved(e))
             await handlers[0](event)
     await client.disconnect()
 

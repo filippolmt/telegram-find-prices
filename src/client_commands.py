@@ -13,7 +13,7 @@ from telethon.tl.functions.messages import (
     ImportChatInviteRequest,
 )
 
-from match_recorder import MatchRecorder, build_message_link
+from match_recorder import MatchRecorder, build_message_link, message_text
 from models import Channel, MatchSource, Product, UserChannel
 from translations import DEFAULT_LANGUAGE, t
 
@@ -124,11 +124,12 @@ class ClientCommands:
             channel_id = getattr(entity, "id", None)
 
             async for message in self.client.iter_messages(entity, limit=limit):
-                if not message.text:
+                text = message_text(message)
+                if not text.match:
                     continue
                 message_link = build_message_link(channel_username, channel_id, message.id)
                 for product in products:
-                    if await self._recorder.record(product, message.text, channel_name, message_link, MatchSource.BACKFILL):
+                    if await self._recorder.record(product, text, channel_name, message_link, MatchSource.BACKFILL):
                         matches_found += 1
 
         except FloodWaitError as e:

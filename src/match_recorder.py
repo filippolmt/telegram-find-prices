@@ -12,6 +12,8 @@ from typing import NamedTuple
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient
+from telethon.tl.custom.message import Message
+from telethon.tl.types import InlineButtonTypeUrl, MessageEntityTextUrl
 
 from models import MatchSource, PriceHistory, Product, User
 from price_parser import extract_prices
@@ -30,6 +32,24 @@ _NOTIFICATIONS = {
     MatchSource.REALTIME: _Notification("notify_match", "notify_price_line", None, 0),
     MatchSource.BACKFILL: _Notification("notify_backfill_match", "notify_backfill_price_line", 300, 0.5),
 }
+
+
+class MessageText(NamedTuple):
+    match: str  # matching and price extraction: plain text plus the URLs it hides
+    quote: str  # notification and PriceHistory: plain text
+
+
+def message_text(message: Message) -> MessageText:
+    """Build the match and quote text of a channel message, the same for Backfill and Realtime."""
+    raw = message.raw_text or ""
+    urls = [e.url for e in message.entities or () if isinstance(e, MessageEntityTextUrl)]
+    urls += [
+        button.type.url
+        for row in getattr(message.reply_markup, "rows", ())
+        for button in row.buttons
+        if isinstance(button.type, InlineButtonTypeUrl)
+    ]
+    return MessageText("\n".join([raw, *urls]), raw)
 
 
 def _normalize(text: str) -> str:
@@ -83,10 +103,10 @@ class MatchRecorder:
         self.bot_client = bot_client
         self._session_factory = db_session_factory
 
-    async def record(self, product: Product, text: str, channel_name: str, message_link: str | None, source: MatchSource) -> bool:
+    async def record(self, product: Product, text: MessageText, channel_name: str, message_link: str | None, source: MatchSource) -> bool:
         """Return True if the message matched the product and the match was recorded."""
         notification = _NOTIFICATIONS[source]
-        result = check_product_match(product, text)
+        result = check_product_match(product, text.match)
         if result is None:
             return False
 
@@ -96,7 +116,7 @@ class MatchRecorder:
                 user_id=product.user_id,
                 price=result["price_found"],
                 channel=channel_name,
-                message_text=text[:500],
+                message_text=text.quote[:500],
                 message_link=message_link,
                 source=source,
             ))
@@ -121,10 +141,11 @@ class MatchRecorder:
         message = t(
             notification.match_key, lang,
             product=product.name, channel=channel_name,
-            price_line=price_line, text=text[:notification.text_limit], link_line=link_line,
+            price_line=price_line, text=text.quote[:notification.text_limit], link_line=link_line,
         )
         try:
-            await self.bot_client.send_message(product.user_id, message)
+            # No parse mode: the quoted post may contain * and _, and a cut quote must not leave an entity open.
+            await self.bot_client.send_message(product.user_id, message, parse_mode=None)
             if notification.pause:
                 await asyncio.sleep(notification.pause)
         except Exception as e:
