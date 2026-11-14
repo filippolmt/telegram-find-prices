@@ -2,7 +2,7 @@
 Tests for database.run_migrations().
 """
 
-from sqlalchemy import text
+from sqlalchemy import create_engine, inspect, text
 
 import database
 from database import Base
@@ -52,3 +52,16 @@ def test_every_foreign_key_cascades():
     # run_migrations() deletes orphaned parents in one pass; a key without CASCADE would fail that at startup.
     assert [str(fk.parent) for table in Base.metadata.tables.values() for fk in table.foreign_keys
             if fk.ondelete != "CASCADE"] == []
+
+
+def test_migration_adds_products_asin(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE products (id INTEGER PRIMARY KEY, user_id INTEGER, name VARCHAR, category VARCHAR)"))
+    monkeypatch.setattr(database, "engine", engine)
+
+    database.run_migrations()
+
+    columns = [c["name"] for c in inspect(engine).get_columns("products")]
+    engine.dispose()
+    assert "asin" in columns

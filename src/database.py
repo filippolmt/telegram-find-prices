@@ -60,6 +60,9 @@ def run_migrations():
             if "category" not in cols:
                 conn.execute(text("ALTER TABLE products ADD COLUMN category VARCHAR"))
                 log.info("Migration: added column products.category")
+            if "asin" not in cols:
+                conn.execute(text("ALTER TABLE products ADD COLUMN asin VARCHAR"))
+                log.info("Migration: added column products.asin")
 
         # channels.title
         if "channels" in inspector.get_table_names():
