@@ -5,7 +5,7 @@ Users watch products and get notified when a Telegram channel they follow posts 
 ## Language
 
 **Match**:
-A channel message that names a watched product and, when the product has a target price, quotes a price at or below it. Every match is recorded in the user's price history.
+A channel message that names a watched product and, when the product has a target price, quotes a price at or below it. Every match is recorded in the user's price history, and stays there only while the product is watched: unwatching a product removes its matches.
 _Avoid_: Hit, alert, offer
 
 **Realtime**:

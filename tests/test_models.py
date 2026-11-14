@@ -241,6 +241,21 @@ def test_price_history_multiple_entries(db_session):
     assert len(backfill) == 1
 
 
+def test_unwatching_product_removes_its_matches(db_session):
+    db_session.add(User(user_id=100))
+    db_session.flush()
+    product = Product(user_id=100, name="airpods")
+    db_session.add(product)
+    db_session.flush()
+    db_session.add(PriceHistory(product_id=product.id, user_id=100, price=199.0, channel="Ch1", message_text="a"))
+    db_session.commit()
+
+    db_session.delete(product)
+    db_session.commit()
+
+    assert db_session.query(PriceHistory).count() == 0
+
+
 def test_remove_user_channel_keeps_channel(db_session):
     """Removing a user-channel link does not delete the channel itself."""
     user = User(id=1, user_id=100, username="pippo")
