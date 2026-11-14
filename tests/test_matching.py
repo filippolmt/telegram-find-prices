@@ -2,7 +2,7 @@
 Tests for product + price matching logic.
 """
 
-from channel_listener import check_product_match
+from match_recorder import check_product_match
 from models import Product, User
 
 

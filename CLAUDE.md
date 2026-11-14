@@ -6,7 +6,7 @@
 
 The `Makefile` is the entry point (`make test`, `make lint`, `make run-d`, `make auth`, …); read it for the full list. Tests also run natively with `uv run pytest`, faster than the Docker path. After a dependency change, `make build` before any other `make` target. `src/` and `tests/` are mounted as volumes, so code changes need only a restart.
 
-To inspect real channels, folders or posts read-only, run a Telethon script with the local user-client session: `make stop`, then `docker compose run --rm -T test python - < script.py`, then `make run-d`. One session must never run in two processes at once.
+Every change to the bot's behaviour is also verified on the real product locally, after the unit tests: `.env` and sessions here are configured. Run a Telethon script with the local user-client session against real channels: `make stop`, then `docker compose run --rm -T test python - < script.py`, then `make run-d` and check `make logs`. The script sets `DATABASE_URL` to a throwaway SQLite inside the container and gives `ClientCommands`/`MatchRecorder` a stub bot client that prints instead of sending, so the real DB and real users stay untouched. One session must never run in two processes at once.
 
 Configuration: every variable and its default is in `src/config.py`; user-facing setup is in `README.md`.
 
