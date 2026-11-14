@@ -7,7 +7,6 @@ data/
 *.sqlite3
 __pycache__/
 .venv/
-.devcontainer/
 .pytest_cache/
 .ruff_cache/
 CLAUDE.md
