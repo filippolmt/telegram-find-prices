@@ -114,6 +114,8 @@ class ClientCommands:
             product_data = [{"id": p.id, "name": p.name, "target_price": p.target_price, "user_id": p.user_id} for p in products]
             user = session.query(User).filter_by(user_id=user_id).first()
             user_lang = user.lang_code if user else DEFAULT_LANGUAGE
+            # Read once: a /pause sent while the backfill runs is not honoured.
+            user_paused = bool(user and user.paused)
 
         matches_found = 0
         try:
@@ -167,7 +169,7 @@ class ClientCommands:
                     matches_found += 1
 
                     # Notify via bot
-                    if self.bot_client:
+                    if self.bot_client and not user_paused:
                         if result["price_found"] is not None:
                             price_line = t("notify_backfill_price_line", user_lang, price=result['price_found'], target=result['target_price'])
                         else:
