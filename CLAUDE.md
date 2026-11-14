@@ -37,7 +37,7 @@ Keep these true in every change:
 
 ## Production
 
-`production/docker-compose.yml` runs the image that `.github/workflows/docker-publish.yml` pushes to GHCR on `v*` tags. Variables resolve by Compose interpolation: host environment, then `production/.env`, then compose defaults. A new env var must be added to that compose file too, or it never reaches the container.
+`production/docker-compose.yml` runs the image that `.github/workflows/docker-publish.yml` pushes to GHCR on `v*` tags. Variables resolve by Compose interpolation: host environment, then `production/.env`, then compose defaults. A new env var goes in that compose file (or it never reaches the container) and in both `example.env` templates; `test_env_parity.py` fails otherwise. Templates are named `example.env`, not `.env.example`, because organisation policy blocks agents from reading `.env.*`.
 
 ## Agent skills
 

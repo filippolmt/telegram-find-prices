@@ -40,7 +40,7 @@ cd telegram-find-prices
 ### 2. Configure environment variables
 
 ```bash
-cp .env.example .env
+cp example.env .env
 ```
 
 Fill in `.env` with your credentials:
@@ -180,7 +180,7 @@ tests/
   test_translations.py        # Translation tests
 production/
   docker-compose.yml          # Production compose (pre-built ghcr.io image)
-  .env.example                # Production environment template
+  example.env                 # Production environment template
 data/                         # Runtime (sessions, database) - gitignored
 ```
 
@@ -190,7 +190,7 @@ The Docker image is automatically built and pushed to GitHub Container Registry 
 
 ```bash
 cd production
-cp .env.example .env
+cp example.env .env
 # Fill in .env with your credentials and CLIENT_SESSION_STRING
 docker compose up -d
 ```
