@@ -14,7 +14,7 @@ LINK = "https://t.me/deals/7"
 
 def _setup(db_session_factory, target_price=600, paused=False):
     with db_session_factory() as session:
-        session.add(User(user_id=100, paused=paused))
+        session.add(User(user_id=100, paused=paused, lang_code="en"))
         session.flush()
         product = Product(user_id=100, name="iPhone 15", target_price=target_price)
         session.add(product)
@@ -84,3 +84,23 @@ async def test_notification_text_depends_on_source(db_session_factory):
     realtime, backfill = (call.args[1] for call in bot_client.send_message.await_args_list)
     assert not realtime.startswith("[Backfill]") and long_text in realtime
     assert backfill.startswith("[Backfill]") and long_text[:300] in backfill and long_text[:301] not in backfill
+
+
+async def test_without_bot_client_match_is_recorded(db_session_factory):
+    _, product, _ = _setup(db_session_factory)
+
+    assert await MatchRecorder(None, db_session_factory).record(product, "iPhone 15 a 499€", "Deals", LINK, "backfill") is True
+
+    assert _history(db_session_factory) == [("backfill", 499, "Deals", LINK)]
+
+
+async def test_product_unwatched_before_recording_is_skipped(db_session_factory):
+    recorder, product, bot_client = _setup(db_session_factory)
+    with db_session_factory() as session:
+        session.query(Product).delete()
+        session.commit()
+
+    assert await recorder.record(product, "iPhone 15 a 499€", "Deals", LINK, "realtime") is False
+
+    assert _history(db_session_factory) == []
+    bot_client.send_message.assert_not_awaited()

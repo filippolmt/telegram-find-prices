@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient, events
 
 from match_recorder import MatchRecorder, build_message_link
-from models import Channel, Product, User, UserChannel
+from models import Channel, MatchSource, Product, UserChannel
 
 log = logging.getLogger(__name__)
 
@@ -45,7 +45,7 @@ class ChannelListener:
             message_link = build_message_link(channel_username, channel_id, message_id)
 
             with self._session_factory() as session:
-                # Filter products only for users subscribed to this channel and not paused
+                # Products of users subscribed to this channel; the recorder skips notifying paused users
                 # Match by username or numeric channel ID
                 possible_ids = []
                 if channel_username:
@@ -58,9 +58,7 @@ class ChannelListener:
                         session.query(Product)
                         .join(UserChannel, UserChannel.user_id == Product.user_id)
                         .join(Channel, Channel.id == UserChannel.channel_id)
-                        .join(User, User.user_id == Product.user_id)
                         .filter(Channel.identifier.in_(possible_ids))
-                        .filter(User.paused == False)  # noqa: E712
                         .order_by(Product.id)
                         .all()
                     )
@@ -70,4 +68,4 @@ class ChannelListener:
                 session.expunge_all()
 
             for product in products:
-                await self._recorder.record(product, text, channel_name, message_link, "realtime")
+                await self._recorder.record(product, text, channel_name, message_link, MatchSource.REALTIME)

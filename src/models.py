@@ -3,6 +3,7 @@ Database models (SQLAlchemy ORM).
 """
 
 from datetime import datetime, timezone
+from enum import StrEnum
 
 from sqlalchemy import (
     Boolean,
@@ -68,6 +69,12 @@ class Product(Base):
                       default=lambda: datetime.now(timezone.utc).isoformat())
 
 
+class MatchSource(StrEnum):
+    """Where a match was found (stored in PriceHistory.source)."""
+    REALTIME = "realtime"
+    BACKFILL = "backfill"
+
+
 class PriceHistory(Base):
     """Price history entries found in channels."""
     __tablename__ = "price_history"
@@ -81,6 +88,6 @@ class PriceHistory(Base):
     channel = Column(String, nullable=False)
     message_text = Column(String, nullable=False)
     message_link = Column(String, nullable=True)
-    source = Column(String, nullable=False, default="realtime")
+    source = Column(String, nullable=False, default=MatchSource.REALTIME)
     found_at = Column(String, nullable=False,
                       default=lambda: datetime.now(timezone.utc).isoformat())

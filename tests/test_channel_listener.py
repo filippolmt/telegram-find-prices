@@ -47,3 +47,27 @@ async def test_realtime_skips_product_unwatched_while_notifying(db_session_facto
     with db_session_factory() as session:
         assert [h.product_id for h in session.query(PriceHistory)] == [iphone_id]
     bot_client.send_message.assert_awaited_once()
+
+
+async def test_realtime_records_match_of_paused_user_without_notifying(db_session_factory):
+    with db_session_factory() as session:
+        session.add_all([User(user_id=100, paused=True), Channel(identifier="deals")])
+        session.flush()
+        session.add(UserChannel(user_id=100, channel_id=session.query(Channel).one().id))
+        session.add(Product(user_id=100, name="iPhone 15", target_price=600))
+        session.commit()
+
+    bot_client = MagicMock()
+    bot_client.send_message = AsyncMock()
+    handler = _registered_handler(db_session_factory, bot_client)
+
+    event = SimpleNamespace(
+        raw_text="iPhone 15 a 499€",
+        id=7,
+        get_chat=AsyncMock(return_value=SimpleNamespace(title="Deals", username="deals", id=123)),
+    )
+    await handler(event)
+
+    with db_session_factory() as session:
+        assert [(h.source, h.price) for h in session.query(PriceHistory)] == [("realtime", 499)]
+    bot_client.send_message.assert_not_awaited()

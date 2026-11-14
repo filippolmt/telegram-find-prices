@@ -14,7 +14,7 @@ from telethon.tl.functions.messages import (
 )
 
 from match_recorder import MatchRecorder, build_message_link
-from models import Channel, Product, UserChannel
+from models import Channel, MatchSource, Product, UserChannel
 from translations import DEFAULT_LANGUAGE, t
 
 log = logging.getLogger(__name__)
@@ -128,7 +128,7 @@ class ClientCommands:
                     continue
                 message_link = build_message_link(channel_username, channel_id, message.id)
                 for product in products:
-                    if await self._recorder.record(product, message.text, channel_name, message_link, "backfill"):
+                    if await self._recorder.record(product, message.text, channel_name, message_link, MatchSource.BACKFILL):
                         matches_found += 1
 
         except FloodWaitError as e:

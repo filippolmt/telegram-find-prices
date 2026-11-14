@@ -7,21 +7,28 @@ Shared by the realtime listener and the backfill scan.
 import asyncio
 import logging
 import re
+from typing import NamedTuple
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient
 
-from models import PriceHistory, Product, User
+from models import MatchSource, PriceHistory, Product, User
 from price_parser import extract_prices
 from translations import DEFAULT_LANGUAGE, t
 
 log = logging.getLogger(__name__)
 
-# source -> (notification key, price line key, max quoted text length, pause after each notification)
-_SOURCES = {
-    "realtime": ("notify_match", "notify_price_line", None, 0),
-    "backfill": ("notify_backfill_match", "notify_backfill_price_line", 300, 0.5),
+class _Notification(NamedTuple):
+    match_key: str
+    price_key: str
+    text_limit: int | None  # max quoted message length
+    pause: float  # seconds to wait after sending, to stay under the bot rate limit
+
+
+_NOTIFICATIONS = {
+    MatchSource.REALTIME: _Notification("notify_match", "notify_price_line", None, 0),
+    MatchSource.BACKFILL: _Notification("notify_backfill_match", "notify_backfill_price_line", 300, 0.5),
 }
 
 
@@ -76,9 +83,9 @@ class MatchRecorder:
         self.bot_client = bot_client
         self._session_factory = db_session_factory
 
-    async def record(self, product: Product, text: str, channel_name: str, message_link: str | None, source: str) -> bool:
+    async def record(self, product: Product, text: str, channel_name: str, message_link: str | None, source: MatchSource) -> bool:
         """Return True if the message matched the product and the match was recorded."""
-        match_key, price_key, text_limit, pause = _SOURCES[source]
+        notification = _NOTIFICATIONS[source]
         result = check_product_match(product, text)
         if result is None:
             return False
@@ -109,16 +116,17 @@ class MatchRecorder:
         if not notify or self.bot_client is None:
             return True
 
-        price_line = t(price_key, lang, price=result["price_found"], target=result["target_price"]) if result["price_found"] is not None else ""
+        price_line = t(notification.price_key, lang, price=result["price_found"], target=result["target_price"]) if result["price_found"] is not None else ""
         link_line = t("notify_link_line", lang, link=message_link) if message_link else ""
-        notification = t(
-            match_key, lang,
+        message = t(
+            notification.match_key, lang,
             product=product.name, channel=channel_name,
-            price_line=price_line, text=text[:text_limit], link_line=link_line,
+            price_line=price_line, text=text[:notification.text_limit], link_line=link_line,
         )
         try:
-            await self.bot_client.send_message(product.user_id, notification)
-            await asyncio.sleep(pause)
+            await self.bot_client.send_message(product.user_id, message)
+            if notification.pause:
+                await asyncio.sleep(notification.pause)
         except Exception as e:
             log.error("Error sending %s notification to %s: %s", source, product.user_id, e)
         return True
