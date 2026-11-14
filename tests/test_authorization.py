@@ -62,9 +62,9 @@ def _event(user_id, username="stranger"):
 async def test_unauthorized_user_is_not_registered(monkeypatch, db_session_factory):
     bot = _make_bot(monkeypatch, db_session_factory, [1], False)
 
-    username, user_id, _, created = await bot.register_user_if_not_exists(_event(2))
+    sender = await bot.register_user_if_not_exists(_event(2))
 
-    assert (username, user_id, created) == ("stranger", 2, False)
+    assert (sender.username, sender.user_id) == ("stranger", 2)
     with db_session_factory() as session:
         assert session.query(User).count() == 0
 
@@ -72,12 +72,10 @@ async def test_unauthorized_user_is_not_registered(monkeypatch, db_session_facto
 async def test_authorized_user_is_registered(monkeypatch, db_session_factory):
     bot = _make_bot(monkeypatch, db_session_factory, [1], False)
 
-    _, _, _, created = await bot.register_user_if_not_exists(_event(1, "owner"))
+    await bot.register_user_if_not_exists(_event(1, "owner"))
 
-    assert created is True
     with db_session_factory() as session:
         assert session.query(User).filter_by(user_id=1).one().username == "owner"
-
 
 
 def _gate_event(user_id, username="stranger"):
@@ -135,3 +133,47 @@ async def test_gate_runs_flow_with_context_for_authorized_sender(monkeypatch, db
     assert [(c.user_id, c.username, c.lang) for c in calls] == [(1, "owner", "en")]
     with db_session_factory() as session:
         assert session.query(User).filter_by(user_id=1).one().username == "owner"
+
+
+class _FakeBotClient:
+    """Records handlers by event builder, as TelegramClient.on would."""
+
+    def __init__(self):
+        self.handlers = []
+
+    def on(self, builder):
+        def add(handler):
+            self.handlers.append((builder, handler))
+            return handler
+
+        return add
+
+    async def dispatch(self, text, event):
+        matched = [h for b, h in self.handlers if b.pattern(text)]
+        assert len(matched) == 1, f"{text!r} matched {len(matched)} handlers"
+        await matched[0](event)
+
+
+def _registered_bot(monkeypatch, db_session_factory):
+    bot = _make_bot(monkeypatch, db_session_factory, [1], False)
+    bot.bot_client = _FakeBotClient()
+    bot.register_commands()
+    return bot
+
+
+async def test_start_without_username_is_not_authorized(monkeypatch, db_session_factory):
+    bot = _registered_bot(monkeypatch, db_session_factory)
+    event = _gate_event(1, username=None)
+
+    await bot.bot_client.dispatch("/start", event)
+
+    assert event.replies == [t("not_authorized", "en")]
+
+
+async def test_registered_command_runs_flow_for_authorized_sender(monkeypatch, db_session_factory):
+    bot = _registered_bot(monkeypatch, db_session_factory)
+
+    await bot.bot_client.dispatch("/pause", _gate_event(1, "owner"))
+
+    with db_session_factory() as session:
+        assert session.query(User).filter_by(user_id=1).one().paused is True
