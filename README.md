@@ -217,7 +217,7 @@ Variables are resolved via Docker Compose interpolation (`${VAR}`): host environ
 make test        # in Docker
 make lint
 
-uv run pytest    # natively, faster (Python 3.14 from .python-version)
+uv run pytest    # natively, faster (Python version from .python-version)
 uv run ruff check src tests
 ```
 
