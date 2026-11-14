@@ -77,3 +77,60 @@ async def test_authorized_user_is_registered(monkeypatch, db_session_factory):
     with db_session_factory() as session:
         assert session.query(User).filter_by(user_id=1).one().username == "owner"
 
+
+
+def _gate_event(user_id, username="stranger"):
+    event = _event(user_id, username)
+    event.replies = []
+
+    async def respond(text):
+        event.replies.append(text)
+
+    event.respond = respond
+    return event
+
+
+def _recording_flow():
+    calls = []
+
+    async def flow(event, ctx):
+        calls.append(ctx)
+
+    return flow, calls
+
+
+async def test_gate_rejects_unauthorized_sender_without_persisting(monkeypatch, db_session_factory):
+    bot = _make_bot(monkeypatch, db_session_factory, [1], False)
+    flow, calls = _recording_flow()
+    event = _gate_event(2)
+
+    await bot._gate(flow)(event)
+
+    assert event.replies == ["You are not authorized to use this bot."]
+    assert calls == []
+    with db_session_factory() as session:
+        assert session.query(User).count() == 0
+
+
+async def test_gate_asks_sender_without_username_to_start_first(monkeypatch, db_session_factory):
+    bot = _make_bot(monkeypatch, db_session_factory, [1], False)
+    flow, calls = _recording_flow()
+    event = _gate_event(1, username=None)
+
+    await bot._gate(flow)(event)
+
+    assert event.replies == ["Please start the bot first with /start in a private chat."]
+    assert calls == []
+
+
+async def test_gate_runs_flow_with_context_for_authorized_sender(monkeypatch, db_session_factory):
+    bot = _make_bot(monkeypatch, db_session_factory, [1], False)
+    flow, calls = _recording_flow()
+    event = _gate_event(1, "owner")
+
+    await bot._gate(flow)(event)
+
+    assert event.replies == []
+    assert [(c.user_id, c.username, c.lang) for c in calls] == [(1, "owner", "en")]
+    with db_session_factory() as session:
+        assert session.query(User).filter_by(user_id=1).one().username == "owner"

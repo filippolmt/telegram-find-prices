@@ -5,6 +5,8 @@ Bot command handlers for Telegram bot interactions.
 import logging
 import re
 from asyncio import TimeoutError as AsyncTimeoutError
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
@@ -70,6 +72,18 @@ _SKIP_KEYWORDS = {"/skip", "skip", "/salta", "salta"}
 _YES_KEYWORDS = {"si", "sì", "yes", "ok"}
 
 
+@dataclass(frozen=True)
+class CommandContext:
+    """A sender that passed the gate: authorized and registered."""
+
+    user_id: int
+    username: str
+    lang: str
+
+
+CommandFlow = Callable[[events.NewMessage.Event, CommandContext], Awaitable[None]]
+
+
 class BotCommands:
     """Telegram bot command handlers."""
 
@@ -122,28 +136,43 @@ class BotCommands:
 
         return username, user_id, sender_lang, False
 
-    def register_commands(self) -> None:
-        """Register all bot command handlers."""
+    def _gate(self, flow: CommandFlow, no_username: str = "start_first") -> Callable[[events.NewMessage.Event], Awaitable[None]]:
+        """Wrap a command flow: resolve, authorize and register the sender, then run the flow with its context."""
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/start(?:\s|$)"))
-        async def start_command(event):
+        async def handler(event) -> None:
             username, user_id, lang, _ = await self.register_user_if_not_exists(event)
+            if user_id is None:
+                await event.respond(t(no_username, lang))
+                return
             if not self._is_authorized(user_id):
                 await event.respond(t("not_authorized", lang))
                 return
+            await flow(event, CommandContext(user_id, username, lang))
+
+        return handler
+
+    def _command(self, name: str, no_username: str = "start_first") -> Callable[[CommandFlow], CommandFlow]:
+        """Register a flow for /name behind the gate."""
+
+        def register(flow: CommandFlow) -> CommandFlow:
+            self.bot_client.on(events.NewMessage(pattern=rf"^/{name}(?:\s|$)"))(self._gate(flow, no_username))
+            return flow
+
+        return register
+
+    def register_commands(self) -> None:
+        """Register all bot command handlers."""
+
+        @self._command("start", no_username="not_authorized")
+        async def start_command(event, ctx):
+            username, user_id, lang = ctx.username, ctx.user_id, ctx.lang
 
             log.info("/start from @%s (id=%s)", username, user_id)
             await event.respond(t("welcome", lang, username=username))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/add_channel(?:\s|$)"))
-        async def add_channel_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("add_channel")
+        async def add_channel_command(event, ctx):
+            user_id, lang = ctx.user_id, ctx.lang
 
             client_event = event.client
             await event.respond(t("add_channel_prompt", lang))
@@ -185,15 +214,9 @@ class BotCommands:
                 else:
                     await event.respond(t("backfill_no_matches", lang))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/list_channels(?:\s|$)"))
-        async def list_channels_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("list_channels")
+        async def list_channels_command(event, ctx):
+            user_id, lang = ctx.user_id, ctx.lang
 
             channels = await self.client_commands.list_channels(user_id)
             if not channels:
@@ -202,15 +225,9 @@ class BotCommands:
 
             await event.respond(t("your_channels", lang, channels="\n".join(channels)))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/remove_channel(?:\s|$)"))
-        async def remove_channel_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("remove_channel")
+        async def remove_channel_command(event, ctx):
+            user_id, lang = ctx.user_id, ctx.lang
 
             with self._session_factory() as session:
                 user_channels = (
@@ -267,15 +284,9 @@ class BotCommands:
 
             await event.respond(t("remove_channel_removed", lang, channel=chosen["display"]))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/watch(?:\s|$)"))
-        async def watch_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("watch")
+        async def watch_command(event, ctx):
+            user_id, lang = ctx.user_id, ctx.lang
 
             client_event = event.client
             await event.respond(t("watch_ask_product", lang))
@@ -400,15 +411,9 @@ class BotCommands:
             log.info("/watch '%s'%s%s%s from user_id=%s", product_name, asin_info, price_info, cat_info, user_id)
             await event.respond(t("watch_active", lang, product=product_name, price_info=price_info, cat_info=cat_info))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/list_products(?:\s|$)"))
-        async def list_products_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("list_products")
+        async def list_products_command(event, ctx):
+            user_id, lang = ctx.user_id, ctx.lang
 
             with self._session_factory() as session:
                 products = session.query(Product).filter_by(user_id=user_id).all()
@@ -423,15 +428,9 @@ class BotCommands:
                     lines.append(f"{i}. {p.name} ({price_str})")
                 await event.respond(t("your_products", lang, products="\n".join(lines)))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/unwatch(?:\s|$)"))
-        async def unwatch_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("unwatch")
+        async def unwatch_command(event, ctx):
+            user_id, lang = ctx.user_id, ctx.lang
 
             with self._session_factory() as session:
                 products = session.query(Product).filter_by(user_id=user_id).all()
@@ -482,15 +481,9 @@ class BotCommands:
 
             await event.respond(t("unwatched", lang, product=chosen['name']))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/history(?:\s|$)"))
-        async def history_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("history")
+        async def history_command(event, ctx):
+            user_id, lang = ctx.user_id, ctx.lang
 
             with self._session_factory() as session:
                 products = session.query(Product).filter_by(user_id=user_id).all()
@@ -547,15 +540,9 @@ class BotCommands:
                     lines.append(f"  {date_str} | {price_str} | {e.channel}{link_str}")
                 await event.respond("\n".join(lines))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/pause(?:\s|$)"))
-        async def pause_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("pause")
+        async def pause_command(event, ctx):
+            user_id, lang = ctx.user_id, ctx.lang
 
             log.info("/pause from user_id=%s", user_id)
             with self._session_factory() as session:
@@ -565,15 +552,9 @@ class BotCommands:
                     session.commit()
             await event.respond(t("paused", lang))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/resume(?:\s|$)"))
-        async def resume_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("resume")
+        async def resume_command(event, ctx):
+            user_id, lang = ctx.user_id, ctx.lang
 
             log.info("/resume from user_id=%s", user_id)
             with self._session_factory() as session:
@@ -583,15 +564,9 @@ class BotCommands:
                     session.commit()
             await event.respond(t("resumed", lang))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/stats(?:\s|$)"))
-        async def stats_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("stats")
+        async def stats_command(event, ctx):
+            user_id, lang = ctx.user_id, ctx.lang
 
             log.info("/stats from user_id=%s", user_id)
             with self._session_factory() as session:
@@ -647,15 +622,9 @@ class BotCommands:
 
                 await event.respond("\n".join(lines))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/list_categories(?:\s|$)"))
-        async def list_categories_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("list_categories")
+        async def list_categories_command(event, ctx):
+            user_id, lang = ctx.user_id, ctx.lang
 
             with self._session_factory() as session:
                 products = session.query(Product).filter_by(user_id=user_id).all()
