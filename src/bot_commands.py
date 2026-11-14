@@ -13,12 +13,51 @@ from telethon import TelegramClient, events
 from client_commands import ClientCommands
 from config import Config
 from models import Channel, PriceHistory, Product, User, UserChannel
+from price_parser import parse_target_price
 from translations import DEFAULT_LANGUAGE, resolve_lang, t
 
 log = logging.getLogger(__name__)
 
 _CHANNEL_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]{3,31}$")
 _INVITE_HASH_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
+
+_CHANNEL_PREFIXES = (
+    "https://t.me/",
+    "http://t.me/",
+    "https://telegram.me/",
+    "http://telegram.me/",
+    "t.me/",
+    "telegram.me/",
+    "tg://resolve?domain=",
+)
+
+
+def parse_channel_ref(text: str) -> tuple[str, str | None]:
+    """Parse a user-supplied channel reference.
+
+    Returns ("username", name), ("invite", hash), ("invalid_username", None)
+    or ("invalid_invite", None).
+    """
+    ref = text.strip()
+    for prefix in _CHANNEL_PREFIXES:
+        if ref.startswith(prefix):
+            ref = ref[len(prefix):]
+            break
+    ref = ref.removeprefix("@").strip()
+
+    invite_hash = None
+    if ref.startswith("+"):
+        invite_hash = ref[1:]
+    elif ref.startswith("joinchat/"):
+        invite_hash = ref[len("joinchat/"):]
+    if invite_hash is not None:
+        if _INVITE_HASH_RE.fullmatch(invite_hash):
+            return "invite", invite_hash
+        return "invalid_invite", None
+    if _CHANNEL_RE.fullmatch(ref):
+        return "username", ref
+    return "invalid_username", None
+
 
 _CANCEL_KEYWORDS = {"/cancel", "cancel", "/annulla", "annulla"}
 _SKIP_KEYWORDS = {"/skip", "skip", "/salta", "salta"}
@@ -113,45 +152,20 @@ class BotCommands:
                 await event.respond(t("timed_out", lang, command="/add_channel"))
                 return
 
-            # Normalize: strip common prefixes
-            txt = channel_identifier
-            prefixes = [
-                "https://t.me/",
-                "http://t.me/",
-                "https://telegram.me/",
-                "http://telegram.me/",
-                "t.me/",
-                "telegram.me/",
-                "tg://resolve?domain=",
-            ]
-            for p in prefixes:
-                if txt.startswith(p):
-                    txt = txt[len(p):]
-                    break
-            if txt.startswith("@"):
-                txt = txt[1:]
-            channel_identifier = txt.strip()
-
-            # Detect invite link (+HASH or joinchat/HASH)
-            invite_hash = None
-            if channel_identifier.startswith("+"):
-                invite_hash = channel_identifier[1:]
-            elif channel_identifier.startswith("joinchat/"):
-                invite_hash = channel_identifier[len("joinchat/"):]
-
-            if invite_hash:
-                if not _INVITE_HASH_RE.match(invite_hash):
-                    await event.respond(t("invalid_invite_link", lang))
-                    return
+            kind, value = parse_channel_ref(channel_identifier)
+            if kind == "invalid_invite":
+                await event.respond(t("invalid_invite_link", lang))
+                return
+            if kind == "invalid_username":
+                await event.respond(t("invalid_channel_id", lang))
+                return
+            if kind == "invite":
                 # The invite hash grants channel access: never log it in full
-                log.info("/add_channel invite_hash='%s…' from user_id=%s", invite_hash[:4], user_id)
-                success, result, db_id = await self.client_commands.join_channel("", user_id, invite_hash=invite_hash, lang=lang)
+                log.info("/add_channel invite_hash='%s…' from user_id=%s", value[:4], user_id)
+                success, result, db_id = await self.client_commands.join_channel("", user_id, invite_hash=value, lang=lang)
             else:
-                if not _CHANNEL_RE.match(channel_identifier):
-                    await event.respond(t("invalid_channel_id", lang))
-                    return
-                log.info("/add_channel '%s' from user_id=%s", channel_identifier, user_id)
-                success, result, db_id = await self.client_commands.join_channel(channel_identifier, user_id, lang=lang)
+                log.info("/add_channel '%s' from user_id=%s", value, user_id)
+                success, result, db_id = await self.client_commands.join_channel(value, user_id, lang=lang)
 
             await event.respond(result)
 
@@ -277,11 +291,8 @@ class BotCommands:
 
                     target_price = None
                     if price_text.lower() not in _SKIP_KEYWORDS:
-                        cleaned = price_text.replace("€", "").replace("EUR", "").replace("euro", "").strip()
-                        cleaned = cleaned.replace(",", ".")
-                        try:
-                            target_price = float(cleaned)
-                        except ValueError:
+                        target_price = parse_target_price(price_text)
+                        if target_price is None:
                             await conv.send_message(t("watch_invalid_price", lang))
                             return
 
@@ -336,11 +347,7 @@ class BotCommands:
                             if answer in {"si", "sì", "yes", "ok"}:
                                 target_price = suggested_price
                             elif answer not in _SKIP_KEYWORDS | {"no"}:
-                                cleaned = answer.replace("€", "").replace("EUR", "").replace("euro", "").replace(",", ".").strip()
-                                try:
-                                    target_price = float(cleaned)
-                                except ValueError:
-                                    pass
+                                target_price = parse_target_price(answer)
                     except AsyncTimeoutError:
                         pass
 

@@ -2,6 +2,7 @@
 Extract prices from text (European/Italian formats).
 """
 
+import math
 import re
 
 # Pattern for European price formats:
@@ -29,3 +30,16 @@ def extract_prices(text: str) -> list[float]:
         if raw:
             prices.append(_to_float(raw))
     return prices
+
+
+_CURRENCY_RE = re.compile(r"€|\beur(?:o)?\b", re.IGNORECASE)
+
+
+def parse_target_price(text: str) -> float | None:
+    """Parse a user-typed target price ('49,90', '€ 49', '49 EUR'); None if invalid."""
+    cleaned = _CURRENCY_RE.sub("", text).replace(",", ".").strip()
+    try:
+        price = float(cleaned)
+    except ValueError:
+        return None
+    return price if math.isfinite(price) and price >= 0 else None

@@ -2,7 +2,9 @@
 Tests for price parser.
 """
 
-from price_parser import extract_prices
+import pytest
+
+from price_parser import extract_prices, parse_target_price
 
 
 def test_euro_symbol_before():
@@ -70,3 +72,24 @@ def test_large_price():
 
 def test_single_digit_price():
     assert extract_prices("Solo €5") == [5.0]
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("49.90", 49.90),
+        ("49,90", 49.90),
+        ("€ 49", 49.0),
+        ("49€", 49.0),
+        ("49 EUR", 49.0),
+        ("49 eur", 49.0),
+        ("49 euro", 49.0),
+        ("abc", None),
+        ("", None),
+        ("nan", None),
+        ("inf", None),
+        ("-5", None),
+    ],
+)
+def test_parse_target_price(text, expected):
+    assert parse_target_price(text) == expected
