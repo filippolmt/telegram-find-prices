@@ -5,7 +5,7 @@ Users watch products and get notified when a Telegram channel they follow posts 
 ## Language
 
 **Match**:
-A channel message that names a watched product and, when the product has a target price, quotes a price at or below it. Every match is recorded in the user's price history, and stays there only while the product is watched: unwatching a product removes its matches.
+A channel message that names a watched product, or links to its Amazon page, and, when the product has a target price, quotes a price at or below it. Every match is recorded in the user's price history, and stays there only while the product is watched: unwatching a product removes its matches.
 _Avoid_: Hit, alert, offer
 
 **Realtime**:
@@ -19,3 +19,7 @@ _Avoid_: History scan, import
 **Paused**:
 The state of a user who receives no match notifications and no daily summary. Their matches are still recorded.
 _Avoid_: Muted, disabled
+
+**Channel folder**:
+The one Telegram folder of the bot owner's account whose channels the owner follows without adding them one by one. A channel enters and leaves monitoring as it enters and leaves the folder; channels added by hand are not affected.
+_Avoid_: Folder sync, chat list
