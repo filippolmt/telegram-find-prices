@@ -5,6 +5,8 @@ Bot command handlers for Telegram bot interactions.
 import logging
 import re
 from asyncio import TimeoutError as AsyncTimeoutError
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
@@ -70,6 +72,18 @@ _SKIP_KEYWORDS = {"/skip", "skip", "/salta", "salta"}
 _YES_KEYWORDS = {"si", "sì", "yes", "ok"}
 
 
+@dataclass(frozen=True)
+class CommandContext:
+    """An identified command sender: what a flow receives once the gate lets them through."""
+
+    user_id: int
+    username: str
+    lang: str
+
+
+CommandFlow = Callable[[events.NewMessage.Event, CommandContext], Awaitable[None]]
+
+
 class BotCommands:
     """Telegram bot command handlers."""
 
@@ -94,133 +108,131 @@ class BotCommands:
             return user_id in self._allowed_users
         return self._allow_all
 
-    async def register_user_if_not_exists(self, event: events.NewMessage.Event) -> tuple[Optional[str], Optional[int], str, bool]:
-        """Register the sender if not already registered.
+    async def register_user_if_not_exists(self, event: events.NewMessage.Event) -> Optional[CommandContext]:
+        """Identify the sender and register them if authorized and not yet registered.
 
-        Returns: (username, user_id, lang, created)
+        Returns None when the sender has no user id or username.
         """
-        sender = await event.get_sender()
+        tg_sender = await event.get_sender()
         user_id: Optional[int] = getattr(event, "sender_id", None)
-        username: Optional[str] = getattr(sender, "username", None)
-        sender_lang = resolve_lang(getattr(sender, "lang_code", None))
-
+        username: Optional[str] = getattr(tg_sender, "username", None)
         if user_id is None or username is None:
-            return None, None, DEFAULT_LANGUAGE, False
+            return None
+        sender = CommandContext(user_id, username, resolve_lang(getattr(tg_sender, "lang_code", None)))
+
         if not self._is_authorized(user_id):
-            # Never persist strangers: callers reject them on their own auth check
-            return username, user_id, sender_lang, False
+            # Never persist strangers: this check, not the gate order, keeps them out of the DB
+            return sender
 
         with self._session_factory() as session:
             existing = session.get(User, user_id)
             if existing is None:
-                session.add(User(id=user_id, user_id=user_id, username=username, lang_code=sender_lang))
+                session.add(User(id=user_id, user_id=user_id, username=username, lang_code=sender.lang))
                 session.commit()
-                return username, user_id, sender_lang, True
-            if existing.lang_code != sender_lang:
-                existing.lang_code = sender_lang
+            elif existing.lang_code != sender.lang:
+                existing.lang_code = sender.lang
                 session.commit()
 
-        return username, user_id, sender_lang, False
+        return sender
+
+    def _gate(self, flow: CommandFlow, missing_identity_reply: str = "start_first") -> Callable[[events.NewMessage.Event], Awaitable[None]]:
+        """Wrap a command flow: resolve, authorize and register the sender, then run the flow with its context."""
+
+        async def handler(event) -> None:
+            sender = await self.register_user_if_not_exists(event)
+            if sender is None:
+                await event.respond(t(missing_identity_reply, DEFAULT_LANGUAGE))
+                return
+            if not self._is_authorized(sender.user_id):
+                await event.respond(t("not_authorized", sender.lang))
+                return
+            await flow(event, sender)
+
+        return handler
+
+    def _command(self, name: str, missing_identity_reply: str = "start_first") -> Callable[[CommandFlow], CommandFlow]:
+        """Register a flow for /name behind the gate."""
+
+        def register(flow: CommandFlow) -> CommandFlow:
+            self.bot_client.on(events.NewMessage(pattern=rf"^/{name}(?:\s|$)"))(self._gate(flow, missing_identity_reply))
+            return flow
+
+        return register
 
     def register_commands(self) -> None:
         """Register all bot command handlers."""
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/start(?:\s|$)"))
-        async def start_command(event):
-            username, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("start", missing_identity_reply="not_authorized")
+        async def start_command(event, ctx):
 
-            log.info("/start from @%s (id=%s)", username, user_id)
-            await event.respond(t("welcome", lang, username=username))
+            log.info("/start from @%s (id=%s)", ctx.username, ctx.user_id)
+            await event.respond(t("welcome", ctx.lang, username=ctx.username))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/add_channel(?:\s|$)"))
-        async def add_channel_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("add_channel")
+        async def add_channel_command(event, ctx):
 
             client_event = event.client
-            await event.respond(t("add_channel_prompt", lang))
+            await event.respond(t("add_channel_prompt", ctx.lang))
             try:
                 async with client_event.conversation(event.chat_id, timeout=60) as conv:
-                    response = await conv.wait_event(events.NewMessage(from_users=user_id))
+                    response = await conv.wait_event(events.NewMessage(from_users=ctx.user_id))
                     channel_identifier = (response.raw_text or "").strip()
 
                     if channel_identifier.lower() in _CANCEL_KEYWORDS:
-                        await conv.send_message(t("operation_cancelled", lang))
+                        await conv.send_message(t("operation_cancelled", ctx.lang))
                         return
             except AsyncTimeoutError:
-                await event.respond(t("timed_out", lang, command="/add_channel"))
+                await event.respond(t("timed_out", ctx.lang, command="/add_channel"))
                 return
 
             kind, value = parse_channel_ref(channel_identifier)
             if kind is ChannelRef.INVALID_INVITE:
-                await event.respond(t("invalid_invite_link", lang))
+                await event.respond(t("invalid_invite_link", ctx.lang))
                 return
             if kind is ChannelRef.INVALID_USERNAME:
-                await event.respond(t("invalid_channel_id", lang))
+                await event.respond(t("invalid_channel_id", ctx.lang))
                 return
             if kind is ChannelRef.INVITE:
                 # The invite hash grants channel access: never log it in full
-                log.info("/add_channel invite_hash='%s…' from user_id=%s", value[:4], user_id)
-                success, result, db_id = await self.client_commands.join_channel("", user_id, invite_hash=value, lang=lang)
+                log.info("/add_channel invite_hash='%s…' from user_id=%s", value[:4], ctx.user_id)
+                success, result, db_id = await self.client_commands.join_channel("", ctx.user_id, invite_hash=value, lang=ctx.lang)
             else:
-                log.info("/add_channel '%s' from user_id=%s", value, user_id)
-                success, result, db_id = await self.client_commands.join_channel(value, user_id, lang=lang)
+                log.info("/add_channel '%s' from user_id=%s", value, ctx.user_id)
+                success, result, db_id = await self.client_commands.join_channel(value, ctx.user_id, lang=ctx.lang)
 
             await event.respond(result)
 
             # Backfill: scan existing messages
             if success and db_id:
-                await event.respond(t("scanning_messages", lang))
-                matches = await self.client_commands.backfill_channel(db_id, user_id)
+                await event.respond(t("scanning_messages", ctx.lang))
+                matches = await self.client_commands.backfill_channel(db_id, ctx.user_id)
                 if matches > 0:
-                    await event.respond(t("backfill_matches", lang, count=matches))
+                    await event.respond(t("backfill_matches", ctx.lang, count=matches))
                 else:
-                    await event.respond(t("backfill_no_matches", lang))
+                    await event.respond(t("backfill_no_matches", ctx.lang))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/list_channels(?:\s|$)"))
-        async def list_channels_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("list_channels")
+        async def list_channels_command(event, ctx):
 
-            channels = await self.client_commands.list_channels(user_id)
+            channels = await self.client_commands.list_channels(ctx.user_id)
             if not channels:
-                await event.respond(t("no_channels", lang))
+                await event.respond(t("no_channels", ctx.lang))
                 return
 
-            await event.respond(t("your_channels", lang, channels="\n".join(channels)))
+            await event.respond(t("your_channels", ctx.lang, channels="\n".join(channels)))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/remove_channel(?:\s|$)"))
-        async def remove_channel_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("remove_channel")
+        async def remove_channel_command(event, ctx):
 
             with self._session_factory() as session:
                 user_channels = (
                     session.query(Channel.id, Channel.identifier, Channel.title)
                     .join(UserChannel, UserChannel.channel_id == Channel.id)
-                    .filter(UserChannel.user_id == user_id)
+                    .filter(UserChannel.user_id == ctx.user_id)
                     .all()
                 )
                 if not user_channels:
-                    await event.respond(t("no_channels", lang))
+                    await event.respond(t("no_channels", ctx.lang))
                     return
 
                 lines = []
@@ -231,61 +243,54 @@ class BotCommands:
                     channel_data.append({"id": ch.id, "display": display})
 
             client_event = event.client
-            await event.respond(t("remove_channel_prompt", lang, channels="\n".join(lines)))
+            await event.respond(t("remove_channel_prompt", ctx.lang, channels="\n".join(lines)))
             try:
                 async with client_event.conversation(event.chat_id, timeout=60) as conv:
-                    resp = await conv.wait_event(events.NewMessage(from_users=user_id))
+                    resp = await conv.wait_event(events.NewMessage(from_users=ctx.user_id))
                     choice = (resp.raw_text or "").strip()
 
                     if choice.lower() in _CANCEL_KEYWORDS:
-                        await conv.send_message(t("operation_cancelled", lang))
+                        await conv.send_message(t("operation_cancelled", ctx.lang))
                         return
 
                     try:
                         idx = int(choice) - 1
                     except ValueError:
-                        await conv.send_message(t("invalid_choice", lang, command="/remove_channel"))
+                        await conv.send_message(t("invalid_choice", ctx.lang, command="/remove_channel"))
                         return
 
                     if idx < 0 or idx >= len(channel_data):
-                        await conv.send_message(t("number_out_of_range", lang, command="/remove_channel"))
+                        await conv.send_message(t("number_out_of_range", ctx.lang, command="/remove_channel"))
                         return
 
             except AsyncTimeoutError:
-                await event.respond(t("timed_out", lang, command="/remove_channel"))
+                await event.respond(t("timed_out", ctx.lang, command="/remove_channel"))
                 return
 
             chosen = channel_data[idx]
-            log.info("/remove_channel '%s' from user_id=%s", chosen["display"], user_id)
+            log.info("/remove_channel '%s' from user_id=%s", chosen["display"], ctx.user_id)
             with self._session_factory() as session:
                 link = session.query(UserChannel).filter_by(
-                    user_id=user_id, channel_id=chosen["id"]
+                    user_id=ctx.user_id, channel_id=chosen["id"]
                 ).first()
                 if link:
                     session.delete(link)
                     session.commit()
 
-            await event.respond(t("remove_channel_removed", lang, channel=chosen["display"]))
+            await event.respond(t("remove_channel_removed", ctx.lang, channel=chosen["display"]))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/watch(?:\s|$)"))
-        async def watch_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("watch")
+        async def watch_command(event, ctx):
 
             client_event = event.client
-            await event.respond(t("watch_ask_product", lang))
+            await event.respond(t("watch_ask_product", ctx.lang))
             try:
                 async with client_event.conversation(event.chat_id, timeout=60) as conv:
-                    resp = await conv.wait_event(events.NewMessage(from_users=user_id))
+                    resp = await conv.wait_event(events.NewMessage(from_users=ctx.user_id))
                     product_name = (resp.raw_text or "").strip()
 
                     if product_name.lower() in _CANCEL_KEYWORDS:
-                        await conv.send_message(t("operation_cancelled", lang))
+                        await conv.send_message(t("operation_cancelled", ctx.lang))
                         return
 
                     asin = None
@@ -293,13 +298,13 @@ class BotCommands:
                         asin, url = link
                         suggested = slug_keywords(url)
                         if suggested:
-                            await conv.send_message(t("watch_asin_keywords", lang, asin=asin, keywords=suggested))
+                            await conv.send_message(t("watch_asin_keywords", ctx.lang, asin=asin, keywords=suggested))
                         else:
-                            await conv.send_message(t("watch_asin_no_keywords", lang, asin=asin))
-                        resp_kw = await conv.wait_event(events.NewMessage(from_users=user_id))
+                            await conv.send_message(t("watch_asin_no_keywords", ctx.lang, asin=asin))
+                        resp_kw = await conv.wait_event(events.NewMessage(from_users=ctx.user_id))
                         keywords = (resp_kw.raw_text or "").strip()
                         if keywords.lower() in _CANCEL_KEYWORDS:
-                            await conv.send_message(t("operation_cancelled", lang))
+                            await conv.send_message(t("operation_cancelled", ctx.lang))
                             return
                         if suggested and keywords.lower() in _YES_KEYWORDS:
                             product_name = suggested
@@ -310,30 +315,30 @@ class BotCommands:
                             product_name = asin
                     elif urls_in_text(product_name):
                         # Never store (or log) an unreadable link, with its tracking params, as keywords
-                        await conv.send_message(t("watch_link_not_product", lang))
+                        await conv.send_message(t("watch_link_not_product", ctx.lang))
                         return
 
-                    await conv.send_message(t("watch_ask_price", lang))
-                    resp2 = await conv.wait_event(events.NewMessage(from_users=user_id))
+                    await conv.send_message(t("watch_ask_price", ctx.lang))
+                    resp2 = await conv.wait_event(events.NewMessage(from_users=ctx.user_id))
                     price_text = (resp2.raw_text or "").strip()
 
                     if price_text.lower() in _CANCEL_KEYWORDS:
-                        await conv.send_message(t("operation_cancelled", lang))
+                        await conv.send_message(t("operation_cancelled", ctx.lang))
                         return
 
                     target_price = None
                     if price_text.lower() not in _SKIP_KEYWORDS:
                         target_price = parse_target_price(price_text)
                         if target_price is None:
-                            await conv.send_message(t("watch_invalid_price", lang))
+                            await conv.send_message(t("watch_invalid_price", ctx.lang))
                             return
 
-                    await conv.send_message(t("watch_ask_category", lang))
-                    resp3 = await conv.wait_event(events.NewMessage(from_users=user_id))
+                    await conv.send_message(t("watch_ask_category", ctx.lang))
+                    resp3 = await conv.wait_event(events.NewMessage(from_users=ctx.user_id))
                     cat_text = (resp3.raw_text or "").strip()
 
                     if cat_text.lower() in _CANCEL_KEYWORDS:
-                        await conv.send_message(t("operation_cancelled", lang))
+                        await conv.send_message(t("operation_cancelled", ctx.lang))
                         return
 
                     category = None
@@ -341,17 +346,17 @@ class BotCommands:
                         category = cat_text.lower()
 
             except AsyncTimeoutError:
-                await event.respond(t("timed_out", lang, command="/watch"))
+                await event.respond(t("timed_out", ctx.lang, command="/watch"))
                 return
 
             product_name_lower = product_name.lower()
             with self._session_factory() as session:
                 existing = session.query(Product).filter(
-                    Product.user_id == user_id,
+                    Product.user_id == ctx.user_id,
                     or_(Product.name == product_name_lower, and_(Product.asin.isnot(None), Product.asin == asin)),
                 ).first()
                 if existing:
-                    await event.respond(t("watch_already_monitoring", lang, product=product_name))
+                    await event.respond(t("watch_already_monitoring", ctx.lang, product=product_name))
                     return
 
                 # If there's price history for this product, suggest the minimum price
@@ -371,11 +376,11 @@ class BotCommands:
                 if suggested_price is not None:
                     client_event = event.client
                     await event.respond(
-                        t("watch_suggest_price", lang, product=product_name, price=suggested_price)
+                        t("watch_suggest_price", ctx.lang, product=product_name, price=suggested_price)
                     )
                     try:
                         async with client_event.conversation(event.chat_id, timeout=60) as conv:
-                            resp_suggest = await conv.wait_event(events.NewMessage(from_users=user_id))
+                            resp_suggest = await conv.wait_event(events.NewMessage(from_users=ctx.user_id))
                             answer = (resp_suggest.raw_text or "").strip().lower()
                             if answer in _YES_KEYWORDS:
                                 target_price = suggested_price
@@ -386,7 +391,7 @@ class BotCommands:
 
             with self._session_factory() as session:
                 session.add(Product(
-                    user_id=user_id,
+                    user_id=ctx.user_id,
                     name=product_name_lower,
                     target_price=target_price,
                     category=category,
@@ -397,47 +402,33 @@ class BotCommands:
             price_info = f" at ≤{target_price:.2f}" if target_price else " at any price"
             cat_info = f" [{category}]" if category else ""
             asin_info = f" asin={asin}" if asin else ""
-            log.info("/watch '%s'%s%s%s from user_id=%s", product_name, asin_info, price_info, cat_info, user_id)
-            await event.respond(t("watch_active", lang, product=product_name, price_info=price_info, cat_info=cat_info))
+            log.info("/watch '%s'%s%s%s from user_id=%s", product_name, asin_info, price_info, cat_info, ctx.user_id)
+            await event.respond(t("watch_active", ctx.lang, product=product_name, price_info=price_info, cat_info=cat_info))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/list_products(?:\s|$)"))
-        async def list_products_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("list_products")
+        async def list_products_command(event, ctx):
 
             with self._session_factory() as session:
-                products = session.query(Product).filter_by(user_id=user_id).all()
+                products = session.query(Product).filter_by(user_id=ctx.user_id).all()
 
                 if not products:
-                    await event.respond(t("no_products", lang))
+                    await event.respond(t("no_products", ctx.lang))
                     return
 
                 lines = []
                 for i, p in enumerate(products, 1):
                     price_str = f"≤{p.target_price:.2f}" if p.target_price else "any price"
                     lines.append(f"{i}. {p.name} ({price_str})")
-                await event.respond(t("your_products", lang, products="\n".join(lines)))
+                await event.respond(t("your_products", ctx.lang, products="\n".join(lines)))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/unwatch(?:\s|$)"))
-        async def unwatch_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("unwatch")
+        async def unwatch_command(event, ctx):
 
             with self._session_factory() as session:
-                products = session.query(Product).filter_by(user_id=user_id).all()
+                products = session.query(Product).filter_by(user_id=ctx.user_id).all()
 
                 if not products:
-                    await event.respond(t("no_products_short", lang))
+                    await event.respond(t("no_products_short", ctx.lang))
                     return
 
                 lines = []
@@ -448,54 +439,47 @@ class BotCommands:
                     product_ids.append({"id": p.id, "name": p.name})
 
             client_event = event.client
-            await event.respond(t("unwatch_prompt", lang, products="\n".join(lines)))
+            await event.respond(t("unwatch_prompt", ctx.lang, products="\n".join(lines)))
             try:
                 async with client_event.conversation(event.chat_id, timeout=60) as conv:
-                    resp = await conv.wait_event(events.NewMessage(from_users=user_id))
+                    resp = await conv.wait_event(events.NewMessage(from_users=ctx.user_id))
                     choice = (resp.raw_text or "").strip()
 
                     if choice.lower() in _CANCEL_KEYWORDS:
-                        await conv.send_message(t("operation_cancelled", lang))
+                        await conv.send_message(t("operation_cancelled", ctx.lang))
                         return
 
                     try:
                         idx = int(choice) - 1
                     except ValueError:
-                        await conv.send_message(t("invalid_choice", lang, command="/unwatch"))
+                        await conv.send_message(t("invalid_choice", ctx.lang, command="/unwatch"))
                         return
 
                     if idx < 0 or idx >= len(product_ids):
-                        await conv.send_message(t("number_out_of_range", lang, command="/unwatch"))
+                        await conv.send_message(t("number_out_of_range", ctx.lang, command="/unwatch"))
                         return
 
             except AsyncTimeoutError:
-                await event.respond(t("timed_out", lang, command="/unwatch"))
+                await event.respond(t("timed_out", ctx.lang, command="/unwatch"))
                 return
 
             chosen = product_ids[idx]
-            log.info("/unwatch '%s' from user_id=%s", chosen["name"], user_id)
+            log.info("/unwatch '%s' from user_id=%s", chosen["name"], ctx.user_id)
             with self._session_factory() as session:
                 product = session.query(Product).filter_by(id=chosen["id"]).first()
                 if product:
                     session.delete(product)
                     session.commit()
 
-            await event.respond(t("unwatched", lang, product=chosen['name']))
+            await event.respond(t("unwatched", ctx.lang, product=chosen['name']))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/history(?:\s|$)"))
-        async def history_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("history")
+        async def history_command(event, ctx):
 
             with self._session_factory() as session:
-                products = session.query(Product).filter_by(user_id=user_id).all()
+                products = session.query(Product).filter_by(user_id=ctx.user_id).all()
                 if not products:
-                    await event.respond(t("no_products_short", lang))
+                    await event.respond(t("no_products_short", ctx.lang))
                     return
 
                 product_data = [{"id": p.id, "name": p.name} for p in products]
@@ -505,28 +489,28 @@ class BotCommands:
             else:
                 lines = [f"{i}. {p['name']}" for i, p in enumerate(product_data, 1)]
                 client_event = event.client
-                await event.respond(t("history_prompt", lang, products="\n".join(lines)))
+                await event.respond(t("history_prompt", ctx.lang, products="\n".join(lines)))
                 try:
                     async with client_event.conversation(event.chat_id, timeout=60) as conv:
-                        resp = await conv.wait_event(events.NewMessage(from_users=user_id))
+                        resp = await conv.wait_event(events.NewMessage(from_users=ctx.user_id))
                         choice = (resp.raw_text or "").strip()
                         if choice.lower() in _CANCEL_KEYWORDS:
-                            await conv.send_message(t("operation_cancelled", lang))
+                            await conv.send_message(t("operation_cancelled", ctx.lang))
                             return
                         try:
                             idx = int(choice) - 1
                         except ValueError:
-                            await conv.send_message(t("invalid_choice", lang, command="/history"))
+                            await conv.send_message(t("invalid_choice", ctx.lang, command="/history"))
                             return
                         if idx < 0 or idx >= len(product_data):
-                            await conv.send_message(t("number_out_of_range", lang, command="/history"))
+                            await conv.send_message(t("number_out_of_range", ctx.lang, command="/history"))
                             return
                 except AsyncTimeoutError:
-                    await event.respond(t("timed_out", lang, command="/history"))
+                    await event.respond(t("timed_out", ctx.lang, command="/history"))
                     return
                 chosen = product_data[idx]
 
-            log.info("/history '%s' from user_id=%s", chosen["name"], user_id)
+            log.info("/history '%s' from user_id=%s", chosen["name"], ctx.user_id)
             with self._session_factory() as session:
                 entries = (
                     session.query(PriceHistory)
@@ -536,10 +520,10 @@ class BotCommands:
                     .all()
                 )
                 if not entries:
-                    await event.respond(t("history_empty", lang, product=chosen['name']))
+                    await event.respond(t("history_empty", ctx.lang, product=chosen['name']))
                     return
 
-                lines = [t("history_header", lang, product=chosen['name'], count=len(entries))]
+                lines = [t("history_header", ctx.lang, product=chosen['name'], count=len(entries))]
                 for e in entries:
                     date_str = e.found_at[:16].replace("T", " ")
                     price_str = f"{e.price:.2f}" if e.price else "N/A"
@@ -547,67 +531,46 @@ class BotCommands:
                     lines.append(f"  {date_str} | {price_str} | {e.channel}{link_str}")
                 await event.respond("\n".join(lines))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/pause(?:\s|$)"))
-        async def pause_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("pause")
+        async def pause_command(event, ctx):
 
-            log.info("/pause from user_id=%s", user_id)
+            log.info("/pause from user_id=%s", ctx.user_id)
             with self._session_factory() as session:
-                user = session.query(User).filter_by(user_id=user_id).first()
+                user = session.query(User).filter_by(user_id=ctx.user_id).first()
                 if user:
                     user.paused = True
                     session.commit()
-            await event.respond(t("paused", lang))
+            await event.respond(t("paused", ctx.lang))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/resume(?:\s|$)"))
-        async def resume_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("resume")
+        async def resume_command(event, ctx):
 
-            log.info("/resume from user_id=%s", user_id)
+            log.info("/resume from user_id=%s", ctx.user_id)
             with self._session_factory() as session:
-                user = session.query(User).filter_by(user_id=user_id).first()
+                user = session.query(User).filter_by(user_id=ctx.user_id).first()
                 if user:
                     user.paused = False
                     session.commit()
-            await event.respond(t("resumed", lang))
+            await event.respond(t("resumed", ctx.lang))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/stats(?:\s|$)"))
-        async def stats_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("stats")
+        async def stats_command(event, ctx):
 
-            log.info("/stats from user_id=%s", user_id)
+            log.info("/stats from user_id=%s", ctx.user_id)
             with self._session_factory() as session:
                 from sqlalchemy import func
 
                 from models import UserChannel
 
-                n_products = session.query(Product).filter_by(user_id=user_id).count()
-                n_channels = session.query(UserChannel).filter_by(user_id=user_id).count()
-                n_matches = session.query(PriceHistory).filter_by(user_id=user_id).count()
+                n_products = session.query(Product).filter_by(user_id=ctx.user_id).count()
+                n_channels = session.query(UserChannel).filter_by(user_id=ctx.user_id).count()
+                n_matches = session.query(PriceHistory).filter_by(user_id=ctx.user_id).count()
 
                 lines = [
-                    t("stats_header", lang),
-                    t("stats_products", lang, count=n_products),
-                    t("stats_channels", lang, count=n_channels),
-                    t("stats_matches", lang, count=n_matches),
+                    t("stats_header", ctx.lang),
+                    t("stats_products", ctx.lang, count=n_products),
+                    t("stats_channels", ctx.lang, count=n_channels),
+                    t("stats_matches", ctx.lang, count=n_matches),
                 ]
 
                 if n_matches > 0:
@@ -615,60 +578,53 @@ class BotCommands:
                     top = (
                         session.query(Product.name, func.count(PriceHistory.id).label("cnt"))
                         .join(PriceHistory, PriceHistory.product_id == Product.id)
-                        .filter(PriceHistory.user_id == user_id)
+                        .filter(PriceHistory.user_id == ctx.user_id)
                         .group_by(Product.name)
                         .order_by(func.count(PriceHistory.id).desc())
                         .first()
                     )
                     if top:
-                        lines.append(t("stats_top_product", lang, name=top[0], count=top[1]))
+                        lines.append(t("stats_top_product", ctx.lang, name=top[0], count=top[1]))
 
                     # Most active channel
                     top_ch = (
                         session.query(PriceHistory.channel, func.count(PriceHistory.id).label("cnt"))
-                        .filter(PriceHistory.user_id == user_id)
+                        .filter(PriceHistory.user_id == ctx.user_id)
                         .group_by(PriceHistory.channel)
                         .order_by(func.count(PriceHistory.id).desc())
                         .first()
                     )
                     if top_ch:
-                        lines.append(t("stats_top_channel", lang, name=top_ch[0], count=top_ch[1]))
+                        lines.append(t("stats_top_channel", ctx.lang, name=top_ch[0], count=top_ch[1]))
 
                     # Last match
                     last = (
                         session.query(PriceHistory)
-                        .filter_by(user_id=user_id)
+                        .filter_by(user_id=ctx.user_id)
                         .order_by(PriceHistory.found_at.desc())
                         .first()
                     )
                     if last:
                         date_str = last.found_at[:16].replace("T", " ")
-                        lines.append(t("stats_last_match", lang, date=date_str))
+                        lines.append(t("stats_last_match", ctx.lang, date=date_str))
 
                 await event.respond("\n".join(lines))
 
-        @self.bot_client.on(events.NewMessage(pattern=r"^/list_categories(?:\s|$)"))
-        async def list_categories_command(event):
-            _, user_id, lang, _ = await self.register_user_if_not_exists(event)
-            if user_id is None:
-                await event.respond(t("start_first", lang))
-                return
-            if not self._is_authorized(user_id):
-                await event.respond(t("not_authorized", lang))
-                return
+        @self._command("list_categories")
+        async def list_categories_command(event, ctx):
 
             with self._session_factory() as session:
-                products = session.query(Product).filter_by(user_id=user_id).all()
+                products = session.query(Product).filter_by(user_id=ctx.user_id).all()
                 if not products:
-                    await event.respond(t("no_products_short", lang))
+                    await event.respond(t("no_products_short", ctx.lang))
                     return
 
                 by_category = {}
                 for p in products:
-                    cat = p.category or t("uncategorized", lang)
+                    cat = p.category or t("uncategorized", ctx.lang)
                     by_category.setdefault(cat, []).append(p.name)
 
-                lines = [t("categories_header", lang)]
+                lines = [t("categories_header", ctx.lang)]
                 for cat, names in sorted(by_category.items()):
                     lines.append(f"\n{cat}:")
                     for name in names:
