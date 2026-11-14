@@ -14,6 +14,10 @@ services:
       - ./src:/app/src
       - ./tests:/app/tests
       - ./data:/app/data
+      # Read by test_env_parity.py; single files so production/.env stays out of the container
+      - ./example.env:/app/example.env:ro
+      - ./production/example.env:/app/production/example.env:ro
+      - ./production/docker-compose.yml:/app/production/docker-compose.yml:ro
     command: pytest tests/ -v
     profiles:
       - test
