@@ -1,14 +1,14 @@
 # CLAUDE.md
 
-**telegram-find-prices**: Telegram bot (Python 3.14, Telethon, SQLAlchemy on SQLite) that watches Telegram channels for product price offers and notifies users. Runs in Docker.
+**telegram-find-prices**: Telegram bot (Python, Telethon, SQLAlchemy on SQLite) that watches Telegram channels for product price offers and notifies users. Runs in Docker.
 
 ## Commands
 
-The `Makefile` is the entry point (`make test`, `make lint`, `make run-d`, `make auth`, …); read it for the full list. Tests also run natively with `uv run pytest`, faster than the Docker path. After a dependency change, `make build` before any other `make` target. `src/` and `tests/` are mounted as volumes, so code changes need only a restart.
+The `Makefile` is the entry point (`make test`, `make lint`, `make run-d`, `make auth`, …); read it for the full list. Tests also run natively with `uv run pytest`, faster than the Docker path. After a dependency change, `make build` before any other `make` target. `src/` and `tests/` are mounted as volumes, so code changes need only a restart. The bot runs whatever `src/` held when it last (re)started, `make live-check` included: after switching branch, `make stop && make run-d`.
 
 Every change to the bot's behaviour is also verified on the real product locally, after the unit tests: `.env` and sessions here are configured. `make live-check ARGS=…` (example in the `Makefile`) runs recent messages of real channels through Backfill and Realtime with a throwaway DB, printing notifications instead of sending them; pick channels and products from current posts so every case you changed matches. Done when it prints `OK`.
 
-For other read-only inspection of real channels, folders or posts, run a Telethon script with the local user-client session: `make stop`, then `docker compose run --rm -T test python - < script.py`, then `make run-d`. One session must never run in two processes at once.
+For other read-only inspection of real channels, folders or posts, run a Telethon script with the local user-client session: `make stop`, then `docker compose run --rm -T test python - < script.py`, then `make run-d`. One session must never run in two processes at once. Telethon's TL types follow the installed layer, not the online docs: check them in `.venv/lib/python*/site-packages/telethon/tl/types`.
 
 Configuration: every variable and its default is in `src/config.py`; user-facing setup is in `README.md`.
 
