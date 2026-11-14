@@ -1,0 +1,4 @@
+#!/bin/sh
+# Lint before each commit; CI runs the same check. Enable once per clone: make hooks
+command -v uv >/dev/null || { echo "pre-commit: uv not found, ruff skipped"; exit 0; }
+exec uv run ruff check src tests
