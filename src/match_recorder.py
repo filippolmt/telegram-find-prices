@@ -53,12 +53,17 @@ def message_text(message: Message) -> MessageText:
     return MessageText("\n".join([raw, *urls]), raw)
 
 
-def normalize(text: str) -> str:
+def _normalize(text: str) -> str:
     """Normalize text for fuzzy matching: lowercase, remove hyphens/underscores, collapse spaces."""
     text = text.lower()
     text = re.sub(r"[-_]", "", text)
     text = re.sub(r"\s+", " ", text).strip()
     return text
+
+
+def has_keywords(name: str) -> bool:
+    """Whether a product name can match by text: one without letters or digits is in almost every message."""
+    return re.search(r"[^\W_]", name) is not None
 
 
 def check_product_match(product: Product, message_text: str, asins: set[str] = frozenset()) -> dict | None:
@@ -67,9 +72,7 @@ def check_product_match(product: Product, message_text: str, asins: set[str] = f
     Returns a dict with notification info, or None if no match.
     """
     linked = product.asin is not None and product.asin in asins
-    keywords = normalize(product.name)
-    # A name without keywords is a substring of every message: it must match by link only
-    if not linked and (not keywords or keywords not in normalize(message_text)):
+    if not linked and (not has_keywords(product.name) or _normalize(product.name) not in _normalize(message_text)):
         return None
 
     if product.target_price is not None:

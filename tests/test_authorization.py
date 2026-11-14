@@ -2,15 +2,11 @@
 Tests for user authorization: ALLOWED_USERS parsing and fail-closed policy.
 """
 
-from types import SimpleNamespace
-from unittest.mock import MagicMock
-
 import pytest
 
-import bot_commands
-from bot_commands import BotCommands
 from config import parse_allowed_users
 from models import User
+from tests.fakes import chat_event, make_bot, registered_bot, sender_event
 from translations import t
 
 
@@ -28,12 +24,6 @@ def test_parse_allowed_users_drops_invalid_and_warns(caplog):
     assert "@me" in caplog.text and "abc" in caplog.text
 
 
-def _make_bot(monkeypatch, db_session_factory, allowed, allow_all):
-    monkeypatch.setattr(bot_commands.Config, "ALLOWED_USERS", allowed)
-    monkeypatch.setattr(bot_commands.Config, "ALLOW_ALL_USERS", allow_all)
-    return BotCommands(MagicMock(), MagicMock(), db_session_factory)
-
-
 @pytest.mark.parametrize(
     "allowed, allow_all, user_id, expected",
     [
@@ -46,23 +36,14 @@ def _make_bot(monkeypatch, db_session_factory, allowed, allow_all):
     ],
 )
 def test_is_authorized(monkeypatch, db_session_factory, allowed, allow_all, user_id, expected):
-    bot = _make_bot(monkeypatch, db_session_factory, allowed, allow_all)
+    bot = make_bot(monkeypatch, db_session_factory, allowed, allow_all)
     assert bot._is_authorized(user_id) is expected
 
 
-def _event(user_id, username="stranger"):
-    sender = SimpleNamespace(username=username, lang_code="en")
-
-    async def get_sender():
-        return sender
-
-    return SimpleNamespace(sender_id=user_id, get_sender=get_sender)
-
-
 async def test_unauthorized_user_is_not_registered(monkeypatch, db_session_factory):
-    bot = _make_bot(monkeypatch, db_session_factory, [1], False)
+    bot = make_bot(monkeypatch, db_session_factory, [1], False)
 
-    sender = await bot.register_user_if_not_exists(_event(2))
+    sender = await bot.register_user_if_not_exists(sender_event(2))
 
     assert (sender.username, sender.user_id) == ("stranger", 2)
     with db_session_factory() as session:
@@ -70,23 +51,12 @@ async def test_unauthorized_user_is_not_registered(monkeypatch, db_session_facto
 
 
 async def test_authorized_user_is_registered(monkeypatch, db_session_factory):
-    bot = _make_bot(monkeypatch, db_session_factory, [1], False)
+    bot = make_bot(monkeypatch, db_session_factory, [1], False)
 
-    await bot.register_user_if_not_exists(_event(1, "owner"))
+    await bot.register_user_if_not_exists(sender_event(1, "owner"))
 
     with db_session_factory() as session:
         assert session.query(User).filter_by(user_id=1).one().username == "owner"
-
-
-def _gate_event(user_id, username="stranger"):
-    event = _event(user_id, username)
-    event.replies = []
-
-    async def respond(text):
-        event.replies.append(text)
-
-    event.respond = respond
-    return event
 
 
 def _recording_flow():
@@ -99,9 +69,9 @@ def _recording_flow():
 
 
 async def test_gate_rejects_unauthorized_sender_without_persisting(monkeypatch, db_session_factory):
-    bot = _make_bot(monkeypatch, db_session_factory, [1], False)
+    bot = make_bot(monkeypatch, db_session_factory, [1], False)
     flow, calls = _recording_flow()
-    event = _gate_event(2)
+    event = chat_event(2)
 
     await bot._gate(flow)(event)
 
@@ -112,9 +82,9 @@ async def test_gate_rejects_unauthorized_sender_without_persisting(monkeypatch, 
 
 
 async def test_gate_asks_sender_without_username_to_start_first(monkeypatch, db_session_factory):
-    bot = _make_bot(monkeypatch, db_session_factory, [1], False)
+    bot = make_bot(monkeypatch, db_session_factory, [1], False)
     flow, calls = _recording_flow()
-    event = _gate_event(1, username=None)
+    event = chat_event(1, username=None)
 
     await bot._gate(flow)(event)
 
@@ -123,9 +93,9 @@ async def test_gate_asks_sender_without_username_to_start_first(monkeypatch, db_
 
 
 async def test_gate_runs_flow_with_context_for_authorized_sender(monkeypatch, db_session_factory):
-    bot = _make_bot(monkeypatch, db_session_factory, [1], False)
+    bot = make_bot(monkeypatch, db_session_factory, [1], False)
     flow, calls = _recording_flow()
-    event = _gate_event(1, "owner")
+    event = chat_event(1, "owner")
 
     await bot._gate(flow)(event)
 
@@ -135,35 +105,9 @@ async def test_gate_runs_flow_with_context_for_authorized_sender(monkeypatch, db
         assert session.query(User).filter_by(user_id=1).one().username == "owner"
 
 
-class _FakeBotClient:
-    """Records handlers by event builder, as TelegramClient.on would."""
-
-    def __init__(self):
-        self.handlers = []
-
-    def on(self, builder):
-        def add(handler):
-            self.handlers.append((builder, handler))
-            return handler
-
-        return add
-
-    async def dispatch(self, text, event):
-        matched = [h for b, h in self.handlers if b.pattern(text)]
-        assert len(matched) == 1, f"{text!r} matched {len(matched)} handlers"
-        await matched[0](event)
-
-
-def _registered_bot(monkeypatch, db_session_factory):
-    bot = _make_bot(monkeypatch, db_session_factory, [1], False)
-    bot.bot_client = _FakeBotClient()
-    bot.register_commands()
-    return bot
-
-
 async def test_start_without_username_is_not_authorized(monkeypatch, db_session_factory):
-    bot = _registered_bot(monkeypatch, db_session_factory)
-    event = _gate_event(1, username=None)
+    bot = registered_bot(monkeypatch, db_session_factory)
+    event = chat_event(1, username=None)
 
     await bot.bot_client.dispatch("/start", event)
 
@@ -171,9 +115,9 @@ async def test_start_without_username_is_not_authorized(monkeypatch, db_session_
 
 
 async def test_registered_command_runs_flow_for_authorized_sender(monkeypatch, db_session_factory):
-    bot = _registered_bot(monkeypatch, db_session_factory)
+    bot = registered_bot(monkeypatch, db_session_factory)
 
-    await bot.bot_client.dispatch("/pause", _gate_event(1, "owner"))
+    await bot.bot_client.dispatch("/pause", chat_event(1, "owner"))
 
     with db_session_factory() as session:
         assert session.query(User).filter_by(user_id=1).one().paused is True

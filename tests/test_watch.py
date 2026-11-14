@@ -8,12 +8,12 @@ from types import SimpleNamespace
 import pytest
 
 from models import Product
-from tests.test_authorization import _gate_event, _registered_bot
+from tests.fakes import chat_event, registered_bot
 from translations import t
 
 
 def _watch_event(answers):
-    event = _gate_event(1, "owner")
+    event = chat_event(1, "owner")
     event.chat_id = 1
     answers = iter(answers)
 
@@ -31,13 +31,24 @@ def _watch_event(answers):
     return event
 
 
-@pytest.mark.parametrize("answer", ["", "  ", "-"])
+@pytest.mark.parametrize("answer", ["", "  ", "-", "."])
 async def test_watch_rejects_product_name_without_keywords(monkeypatch, db_session_factory, answer):
-    bot = _registered_bot(monkeypatch, db_session_factory)
+    bot = registered_bot(monkeypatch, db_session_factory)
     event = _watch_event([answer])
 
     await bot.bot_client.dispatch("/watch", event)
 
-    assert event.replies == [t("watch_ask_product", "en"), t("watch_empty_product", "en")]
+    assert event.replies == [t("watch_ask_product", "en"), t("watch_name_no_keywords", "en")]
     with db_session_factory() as session:
         assert session.query(Product).count() == 0
+
+
+async def test_watch_link_with_keywords_without_letters_matches_by_link_only(monkeypatch, db_session_factory):
+    bot = registered_bot(monkeypatch, db_session_factory)
+    event = _watch_event(["https://www.amazon.it/dp/B0TEST1234", "-", "/skip", "/skip"])
+
+    await bot.bot_client.dispatch("/watch", event)
+
+    with db_session_factory() as session:
+        product = session.query(Product).one()
+        assert (product.name, product.asin) == ("b0test1234", "B0TEST1234")

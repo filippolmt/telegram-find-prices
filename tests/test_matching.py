@@ -144,9 +144,9 @@ def test_fuzzy_match_underscore(db_session):
 
 def test_name_without_keywords_matches_nothing(db_session):
     product = _create_user_with_product(db_session, "")
-    for name in ["", "  ", "-", "_ -"]:
+    for name in ["", "  ", "-", "_ -", ".", "€!"]:
         product.name = name
-        assert check_product_match(product, "iPhone 15 a 749€") is None, repr(name)
+        assert check_product_match(product, "Offerta: iPhone 15 a 749€! Link: amzn.eu/d/x") is None, repr(name)
 
 
 def test_name_without_keywords_still_matches_by_link(db_session):
