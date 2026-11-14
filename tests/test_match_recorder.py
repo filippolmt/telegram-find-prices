@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-import amazon
+import match_recorder
 from match_recorder import MatchRecorder, MessageText
 from models import PriceHistory, Product, User
 
@@ -126,17 +126,11 @@ SHORT = "https://amzn.to/3abc"
 
 
 @pytest.fixture
-def http(monkeypatch):
-    """Short links resolve through a fake redirect table; records every URL requested."""
-    requested: list[str] = []
-    redirects = {SHORT: f"https://www.amazon.it/dp/{ASIN}?tag=aff-21", "https://amzn.to/other": "https://www.amazon.it/dp/B0OTHER001"}
-
-    def fake_location(url):
-        requested.append(url)
-        return redirects.get(url)
-
-    monkeypatch.setattr(amazon, "_location", fake_location)
-    monkeypatch.setattr(amazon, "_cache", {})
+def links(http):
+    """Short links of the posts below; returns the URLs requested."""
+    redirects, requested = http
+    redirects[SHORT] = f"https://www.amazon.it/dp/{ASIN}?tag=aff-21"
+    redirects["https://amzn.to/other"] = "https://www.amazon.it/dp/B0OTHER001"
     return requested
 
 
@@ -150,21 +144,39 @@ def http(monkeypatch):
         ("Spazzolino a 19€ https://amzn.to/other", False),  # neither
     ],
 )
-async def test_match_by_asin_or_keywords(db_session_factory, http, post, matched):
+async def test_match_by_asin_or_keywords(db_session_factory, links, post, matched):
     recorder, product, _ = _setup(db_session_factory, target_price=20, name="oral-b pro 3", asin=ASIN)
 
     assert await recorder.record(product, _text(post), "Deals", LINK, "realtime") is matched
 
 
-async def test_no_resolution_for_product_without_asin(db_session_factory, http):
+async def test_no_resolution_for_product_without_asin(db_session_factory, links):
     recorder, product, _ = _setup(db_session_factory)
 
     assert await recorder.record(product, _text(f"Offerta a 19€ {SHORT}"), "Deals", LINK, "realtime") is False
-    assert http == []
+    assert links == []
 
 
-async def test_no_resolution_for_paused_user(db_session_factory, http):
+async def test_no_resolution_for_paused_user(db_session_factory, links):
     recorder, product, _ = _setup(db_session_factory, paused=True, name="oral-b pro 3", asin=ASIN)
 
     assert await recorder.record(product, _text(f"Offerta a 19€ {SHORT}"), "Deals", LINK, "realtime") is False
-    assert http == []
+    assert links == []
+
+
+async def test_links_resolved_once_per_message_for_several_asin_products(db_session_factory, links, monkeypatch):
+    recorder, first, _ = _setup(db_session_factory, target_price=None, name="oral-b pro 3", asin=ASIN)
+    with db_session_factory() as session:
+        second = Product(user_id=100, name="kindle", asin="B0OTHER001")
+        session.add(second)
+        session.commit()
+        session.refresh(second)
+        session.expunge(second)
+    parsed = []
+    real = match_recorder.message_asins
+    monkeypatch.setattr(match_recorder, "message_asins", lambda text: parsed.append(text) or real(text))
+    text = _text(f"Offerta {SHORT}")
+
+    assert await recorder.record(first, text, "Deals", LINK, "realtime") is True
+    assert await recorder.record(second, text, "Deals", LINK, "realtime") is False
+    assert len(parsed) == 1

@@ -17,7 +17,7 @@ from urllib.parse import urljoin, urlsplit
 log = logging.getLogger(__name__)
 
 SHORT_LINK_HOSTS = {"link.amazon", "amzn.to", "amzn.eu"}
-# Followed only as a redirect from a short link, never requested when a post links to them directly.
+# Followed only as a redirect straight from a short link, never requested when a post links to them directly.
 # amzlinks.in (Button, Inc.) sits between link.amazon and amazon.it.
 REDIRECT_HOSTS = {"amzlinks.in"}
 MAX_HOPS = 3
@@ -64,7 +64,7 @@ def urls_in_text(text: str) -> list[str]:
     return [url.rstrip(".,;:!?)]") for url in _URL_RE.findall(text)]
 
 
-def _safe(url: str) -> str:
+def _loggable(url: str) -> str:
     """Host and path only: affiliate query strings never reach the logs."""
     parts = urlsplit(url)
     return f"{parts.hostname}{parts.path}"
@@ -79,16 +79,20 @@ _opener = urllib.request.build_opener(_NoRedirect)
 
 
 def _location(url: str) -> str | None:
-    """Location header of one request to url, or None (blocking: run it in a thread)."""
+    """Location header of one request to url, or None for a final answer (blocking: run it in a thread).
+
+    Raises OSError on transient failures (network, timeout, 5xx), so they are not cached.
+    """
     # GET, not HEAD: link.amazon answers HEAD with 404. The body is never read.
     request = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
     try:
         with _opener.open(request, timeout=_TIMEOUT):
             return None
     except HTTPError as e:
-        return e.headers.get("Location") if 300 <= e.code < 400 else None
-    except (OSError, ValueError) as e:
-        log.warning("Short link %s not resolved: %s", _safe(url), e)
+        if 300 <= e.code < 400:
+            return e.headers.get("Location")
+        if e.code >= 500:
+            raise
         return None
 
 
@@ -99,24 +103,28 @@ async def resolve_amazon_url(url: str) -> str | None:
     """Final Amazon URL of a direct or short Amazon link, else None. Results cached per URL."""
     if url in _cache:
         return _cache[url]
-    current, resolved = url, None
+    current, resolved, previous_host = url, None, None
     for hop in range(MAX_HOPS + 1):
-        parts = urlsplit(current)
-        host = (parts.hostname or "").lower()
-        if parts.scheme not in ("http", "https"):
-            break
-        if _AMAZON_HOST_RE.fullmatch(host):
+        if _amazon_parts(current):
             resolved = current
             break
-        if host not in SHORT_LINK_HOSTS and not (hop and host in REDIRECT_HOSTS):
+        parts = urlsplit(current)
+        host = (parts.hostname or "").lower()
+        if parts.scheme not in ("http", "https") or parts.port is not None:
+            break
+        if host not in SHORT_LINK_HOSTS and not (host in REDIRECT_HOSTS and previous_host in SHORT_LINK_HOSTS):
             break
         if hop == MAX_HOPS:
-            log.warning("Short link %s: too many redirects", _safe(url))
+            log.warning("Short link %s: too many redirects", _loggable(url))
             break
-        location = await asyncio.to_thread(_location, current)
+        try:
+            location = await asyncio.to_thread(_location, current)
+        except (OSError, ValueError) as e:
+            log.warning("Short link %s not resolved: %s", _loggable(current), e)
+            return None
         if not location:
             break
-        current = urljoin(current, location)
+        current, previous_host = urljoin(current, location), host
     if len(_cache) >= _CACHE_MAX:
         _cache.clear()  # shortcut: drop-all eviction, fine for a few thousand links a day; LRU if it grows
     _cache[url] = resolved

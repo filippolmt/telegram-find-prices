@@ -36,7 +36,7 @@ class PrintBot:
 def _parse_product(spec: str) -> Product:
     name, _, target = spec.partition("=")
     name, _, asin = name.partition("#")
-    return Product(user_id=USER_ID, name=name.strip(), asin=asin.strip() or None, target_price=float(target) if target else None)
+    return Product(user_id=USER_ID, name=name.strip(), asin=asin.strip().upper() or None, target_price=float(target) if target else None)
 
 
 async def main() -> int:

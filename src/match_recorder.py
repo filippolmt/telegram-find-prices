@@ -102,6 +102,13 @@ class MatchRecorder:
     def __init__(self, bot_client: TelegramClient | None, db_session_factory: sessionmaker):
         self.bot_client = bot_client
         self._session_factory = db_session_factory
+        self._last_asins: tuple[str | None, set[str]] = (None, set())
+
+    async def _message_asins(self, text: str) -> set[str]:
+        # The caller records one message against every product in a row: parse its links once.
+        if self._last_asins[0] != text:
+            self._last_asins = (text, await message_asins(text))
+        return self._last_asins[1]
 
     def _is_active(self, user_id: int) -> bool:
         with self._session_factory() as session:
@@ -113,7 +120,7 @@ class MatchRecorder:
         result = check_product_match(product, text.match)
         if result is None and product.asin and self._is_active(product.user_id):
             # Links are resolved only for an active owner of an ASIN product: otherwise no HTTP request at all
-            result = check_product_match(product, text.match, await message_asins(text.match))
+            result = check_product_match(product, text.match, await self._message_asins(text.match))
         if result is None:
             return False
 

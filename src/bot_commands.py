@@ -12,7 +12,7 @@ from sqlalchemy import and_, or_
 from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient, events
 
-from amazon import first_product_link, slug_keywords
+from amazon import first_product_link, slug_keywords, urls_in_text
 from client_commands import ClientCommands
 from config import Config
 from models import Channel, PriceHistory, Product, User, UserChannel
@@ -308,6 +308,10 @@ class BotCommands:
                         else:
                             # Match by link only: the ASIN as name also matches posts quoting it
                             product_name = asin
+                    elif urls_in_text(product_name):
+                        # Never store (or log) an unreadable link, with its tracking params, as keywords
+                        await conv.send_message(t("watch_link_not_product", lang))
+                        return
 
                     await conv.send_message(t("watch_ask_price", lang))
                     resp2 = await conv.wait_event(events.NewMessage(from_users=user_id))

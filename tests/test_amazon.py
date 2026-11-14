@@ -42,21 +42,6 @@ def test_slug_keywords(url, expected):
     assert slug_keywords(url) == expected
 
 
-@pytest.fixture
-def http(monkeypatch):
-    """Fake redirect table for amazon._location; records every URL requested."""
-    redirects: dict[str, str | None] = {}
-    requested: list[str] = []
-
-    def fake_location(url):
-        requested.append(url)
-        return redirects.get(url)
-
-    monkeypatch.setattr(amazon, "_location", fake_location)
-    monkeypatch.setattr(amazon, "_cache", {})
-    return redirects, requested
-
-
 async def test_short_link_resolves_to_amazon_url(http):
     redirects, requested = http
     redirects["https://amzn.to/3abc"] = "https://amzn.eu/d/xyz"
@@ -138,3 +123,33 @@ async def test_intermediate_host_followed_only_after_a_short_link(http):
     assert await amazon.resolve_amazon_url("https://link.amazon/B01abc") == "https://www.amazon.it/dp/B0GL22B4VQ?tag=aff-21"
     assert await amazon.resolve_amazon_url("https://amzlinks.in/other") is None
     assert requested == ["https://link.amazon/B01abc", "https://amzlinks.in/B01abc"]
+
+
+async def test_transient_failure_is_not_cached(http, monkeypatch):
+    calls = []
+
+    def flaky(url):
+        calls.append(url)
+        if len(calls) == 1:
+            raise TimeoutError("timed out")
+        return "https://www.amazon.it/dp/B0CXYZ1234"
+
+    monkeypatch.setattr(amazon, "_location", flaky)
+
+    assert await amazon.resolve_amazon_url("https://amzn.to/flaky") is None
+    assert await amazon.resolve_amazon_url("https://amzn.to/flaky") == "https://www.amazon.it/dp/B0CXYZ1234"
+
+
+async def test_intermediate_host_cannot_chain_to_itself(http):
+    redirects, requested = http
+    redirects["https://link.amazon/x"] = "https://amzlinks.in/a"
+    redirects["https://amzlinks.in/a"] = "https://amzlinks.in/b"
+
+    assert await amazon.resolve_amazon_url("https://link.amazon/x") is None
+    assert requested == ["https://link.amazon/x", "https://amzlinks.in/a"]
+
+
+async def test_explicit_port_is_not_requested(http):
+    _, requested = http
+    assert await amazon.resolve_amazon_url("https://amzn.to:8443/abc") is None
+    assert requested == []
