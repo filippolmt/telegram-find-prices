@@ -5,12 +5,20 @@ Tests for ClientCommands.backfill_channel().
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+from telethon.tl.custom.message import Message
+from telethon.tl.types import PeerChannel
+
 from client_commands import ClientCommands
 from models import PriceHistory, Product, User
 
+
+def _msg(id, text):
+    return Message(id=id, peer_id=PeerChannel(123), message=text)
+
+
 MESSAGES = [
-    SimpleNamespace(id=1, text="iPhone 15 a 499€"),
-    SimpleNamespace(id=2, text="unrelated offer"),
+    _msg(1, "iPhone 15 a 499€"),
+    _msg(2, "unrelated offer"),
 ]
 
 
@@ -69,8 +77,8 @@ async def test_backfill_skips_product_unwatched_during_scan(db_session_factory):
         with db_session_factory() as session:
             session.query(Product).filter_by(name="iPhone 15").delete()
             session.commit()
-        yield SimpleNamespace(id=1, text="iPhone 15 a 499€")
-        yield SimpleNamespace(id=2, text="AirPods a 99€")
+        yield _msg(1, "iPhone 15 a 499€")
+        yield _msg(2, "AirPods a 99€")
 
     client.iter_messages = iter_messages
     bot_client = MagicMock()

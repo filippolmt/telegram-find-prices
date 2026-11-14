@@ -7,7 +7,7 @@ import logging
 from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient, events
 
-from match_recorder import MatchRecorder, build_message_link
+from match_recorder import MatchRecorder, build_message_link, message_text
 from models import Channel, MatchSource, Product, UserChannel
 
 log = logging.getLogger(__name__)
@@ -31,8 +31,8 @@ class ChannelListener:
 
         @self.client.on(events.NewMessage(func=lambda e: e.is_channel))
         async def on_channel_message(event):
-            text = event.raw_text
-            if not text:
+            text = message_text(event.message)
+            if not text.match:
                 return
 
             chat = await event.get_chat()
@@ -40,7 +40,7 @@ class ChannelListener:
             channel_username = getattr(chat, "username", None)
             channel_id = getattr(chat, "id", None)
             message_id = event.id
-            log.info("Message from channel '%s' (@%s): %s", channel_name, channel_username, text[:80])
+            log.info("Message from channel '%s' (@%s): %s", channel_name, channel_username, text.quote[:80])
 
             message_link = build_message_link(channel_username, channel_id, message_id)
 

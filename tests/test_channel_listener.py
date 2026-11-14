@@ -5,6 +5,9 @@ Tests for ChannelListener's realtime handler.
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
+from telethon.tl.custom.message import Message
+from telethon.tl.types import PeerChannel
+
 from channel_listener import ChannelListener
 from models import Channel, PriceHistory, Product, User, UserChannel
 
@@ -27,7 +30,7 @@ async def test_realtime_skips_product_unwatched_while_notifying(db_session_facto
         session.commit()
         iphone_id = iphone.id
 
-    async def unwatch_airpods(*_args):
+    async def unwatch_airpods(*_args, **_kwargs):
         # The user unwatches AirPods while the iPhone 15 notification is being sent.
         with db_session_factory() as session:
             session.query(Product).filter_by(name="AirPods").delete()
@@ -38,7 +41,7 @@ async def test_realtime_skips_product_unwatched_while_notifying(db_session_facto
     handler = _registered_handler(db_session_factory, bot_client)
 
     event = SimpleNamespace(
-        raw_text="iPhone 15 a 499€ e AirPods a 99€",
+        message=Message(id=7, peer_id=PeerChannel(123), message="iPhone 15 a 499€ e AirPods a 99€"),
         id=7,
         get_chat=AsyncMock(return_value=SimpleNamespace(title="Deals", username="deals", id=123)),
     )
@@ -62,7 +65,7 @@ async def test_realtime_records_match_of_paused_user_without_notifying(db_sessio
     handler = _registered_handler(db_session_factory, bot_client)
 
     event = SimpleNamespace(
-        raw_text="iPhone 15 a 499€",
+        message=Message(id=7, peer_id=PeerChannel(123), message="iPhone 15 a 499€"),
         id=7,
         get_chat=AsyncMock(return_value=SimpleNamespace(title="Deals", username="deals", id=123)),
     )
