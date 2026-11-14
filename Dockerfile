@@ -1,5 +1,5 @@
 # Stage 1: build dependencies
-FROM python:3.14-slim AS builder
+FROM python:3.15-slim AS builder
 
 # uv from official image (no pip install needed)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen
 
 # Stage 2: lightweight final image (no uv or build cache)
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 WORKDIR /app
 
