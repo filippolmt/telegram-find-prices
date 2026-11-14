@@ -70,6 +70,7 @@ def run_migrations():
 
         # Rows with dangling references, left before foreign keys were enforced.
         # One pass suffices: every foreign key cascades, so deleting a row cannot orphan another.
+        # A future foreign key without CASCADE would make these deletes fail at startup instead.
         if engine.dialect.name == "sqlite":
             removed = 0
             # A row with two dangling references is listed twice; the second delete matches nothing.
