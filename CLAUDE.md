@@ -119,3 +119,17 @@ Tests use pytest with in-memory SQLite (no Telegram credentials needed). 79 test
 Code comments, docstrings, and log messages are in **English**. User-facing bot messages are **auto-translated** based on the user's Telegram language setting (`sender.lang_code`). Supported languages: **English** (default) and **Italian**. Unsupported languages fall back to English.
 
 All translatable strings live in `src/translations.py` as a `MESSAGES` dict. To add a new language: add its 2-letter code to `SUPPORTED_LANGUAGES` and add a new key to `MESSAGES` with all string translations. The `test_translations.py` completeness checks will catch any missing keys.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live in GitHub Issues (`filippolmt/telegram-find-prices`), managed with `gh`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `GLOSSARY.md` and `docs/adr/` at the repo root, created lazily. See `docs/agents/domain.md`.
