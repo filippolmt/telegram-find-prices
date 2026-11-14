@@ -4,7 +4,16 @@ Database models (SQLAlchemy ORM).
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, Column, Float, Integer, String, ForeignKey, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+)
+
 from database import Base
 
 

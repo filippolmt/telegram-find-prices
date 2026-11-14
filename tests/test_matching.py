@@ -2,8 +2,8 @@
 Tests for product + price matching logic.
 """
 
-from models import User, Product
 from channel_listener import check_product_match
+from models import Product, User
 
 
 def _create_user_with_product(db_session, name, target_price=None):

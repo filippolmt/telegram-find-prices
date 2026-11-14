@@ -2,11 +2,12 @@
 Script di sviluppo per il bot Telegram.
 """
 
+import subprocess
 import sys
 import time
-import subprocess
-from watchdog.observers import Observer
+
 from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
 
 
 class ReloadHandler(FileSystemEventHandler):

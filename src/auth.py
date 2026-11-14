@@ -4,7 +4,9 @@ Creates session files and exits.
 """
 
 import asyncio
+
 from telethon import TelegramClient
+
 from config import Config
 
 

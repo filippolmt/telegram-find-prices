@@ -3,16 +3,21 @@ Telegram user client commands (join/leave channels, backfill).
 """
 
 import logging
+
+from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient
+from telethon.errors import FloodWaitError, RPCError, UserAlreadyParticipantError
+from telethon.tl.functions.channels import JoinChannelRequest, LeaveChannelRequest
+from telethon.tl.functions.messages import (
+    CheckChatInviteRequest,
+    ImportChatInviteRequest,
+)
+
+from channel_listener import check_product_match
+from models import Channel, PriceHistory, Product, User, UserChannel
+from translations import DEFAULT_LANGUAGE, t
 
 log = logging.getLogger(__name__)
-from telethon.tl.functions.channels import LeaveChannelRequest, JoinChannelRequest
-from telethon.tl.functions.messages import ImportChatInviteRequest, CheckChatInviteRequest
-from telethon.errors import RPCError, FloodWaitError, UserAlreadyParticipantError
-from sqlalchemy.orm import Session, sessionmaker
-from models import UserChannel, Channel, Product, PriceHistory, User
-from channel_listener import check_product_match
-from translations import t, DEFAULT_LANGUAGE
 
 
 class ClientCommands:

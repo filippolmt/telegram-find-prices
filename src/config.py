@@ -5,6 +5,7 @@ Bot configuration loaded from environment variables.
 import logging
 import os
 from pathlib import Path
+
 from dotenv import load_dotenv
 
 log = logging.getLogger(__name__)

@@ -2,16 +2,17 @@
 Listen to monitored channel messages and notify users on product matches.
 """
 
-import re
 import logging
-from telethon import events, TelegramClient
-from sqlalchemy.orm import Session, sessionmaker
+import re
+
+from sqlalchemy.orm import sessionmaker
+from telethon import TelegramClient, events
+
+from models import Channel, PriceHistory, Product, User, UserChannel
+from price_parser import extract_prices
+from translations import DEFAULT_LANGUAGE, t
 
 log = logging.getLogger(__name__)
-
-from models import Product, Channel, UserChannel, User, PriceHistory
-from price_parser import extract_prices
-from translations import t, DEFAULT_LANGUAGE
 
 
 def _normalize(text: str) -> str:

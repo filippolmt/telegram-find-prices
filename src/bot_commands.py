@@ -4,16 +4,18 @@ Bot command handlers for Telegram bot interactions.
 
 import logging
 import re
-
-log = logging.getLogger(__name__)
-from typing import Optional
 from asyncio import TimeoutError as AsyncTimeoutError
-from telethon import events, TelegramClient
-from sqlalchemy.orm import Session, sessionmaker
+from typing import Optional
+
+from sqlalchemy.orm import sessionmaker
+from telethon import TelegramClient, events
+
 from client_commands import ClientCommands
 from config import Config
-from models import User, Product, PriceHistory, UserChannel, Channel
-from translations import t, resolve_lang, DEFAULT_LANGUAGE
+from models import Channel, PriceHistory, Product, User, UserChannel
+from translations import DEFAULT_LANGUAGE, resolve_lang, t
+
+log = logging.getLogger(__name__)
 
 _CHANNEL_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]{3,31}$")
 _INVITE_HASH_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
@@ -499,7 +501,7 @@ class BotCommands:
                 for e in entries:
                     date_str = e.found_at[:16].replace("T", " ")
                     price_str = f"{e.price:.2f}" if e.price else "N/A"
-                    link_str = f" link" if e.message_link else ""
+                    link_str = " link" if e.message_link else ""
                     lines.append(f"  {date_str} | {price_str} | {e.channel}{link_str}")
                 await event.respond("\n".join(lines))
 
@@ -552,6 +554,7 @@ class BotCommands:
             log.info("/stats from user_id=%s", user_id)
             with self._session_factory() as session:
                 from sqlalchemy import func
+
                 from models import UserChannel
 
                 n_products = session.query(Product).filter_by(user_id=user_id).count()

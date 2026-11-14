@@ -10,8 +10,8 @@ from zoneinfo import ZoneInfo
 from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient
 
-from models import User, PriceHistory, Product
-from translations import t, DEFAULT_LANGUAGE
+from models import PriceHistory, Product, User
+from translations import DEFAULT_LANGUAGE, t
 
 log = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ class DailySummaryScheduler:
                     lines.append(t("summary_product", lang, name=name, count=len(matches)))
                     for m in matches[:5]:
                         price_str = f"{m.price:.2f}" if m.price else "N/A"
-                        link_str = f" " if m.message_link else ""
+                        link_str = " " if m.message_link else ""
                         lines.append(f"  {price_str} in {m.channel}{link_str}")
                     if len(matches) > 5:
                         lines.append(t("summary_more", lang, count=len(matches) - 5))

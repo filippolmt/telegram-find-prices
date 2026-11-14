@@ -1,4 +1,4 @@
-.PHONY: build run run-d auth gen-session test test-v test-one shell logs stop clean
+.PHONY: build run run-d auth gen-session test test-v test-one lint shell logs stop clean
 
 # Build Docker image (only when dependencies change)
 build:
@@ -31,6 +31,10 @@ test-v:
 # Run a single test (e.g.: make test-one T=tests/test_models.py::test_create_user)
 test-one:
 	docker compose run --rm test pytest $(T) -v
+
+# Lint with ruff (rebuild the image after dependency changes: make build)
+lint:
+	docker compose run --rm test ruff check src tests
 
 # Shell inside the container
 shell:
