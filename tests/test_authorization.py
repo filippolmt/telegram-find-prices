@@ -11,6 +11,7 @@ import bot_commands
 from bot_commands import BotCommands
 from config import parse_allowed_users
 from models import User
+from translations import t
 
 
 def test_parse_allowed_users_valid():
@@ -106,7 +107,7 @@ async def test_gate_rejects_unauthorized_sender_without_persisting(monkeypatch, 
 
     await bot._gate(flow)(event)
 
-    assert event.replies == ["You are not authorized to use this bot."]
+    assert event.replies == [t("not_authorized", "en")]
     assert calls == []
     with db_session_factory() as session:
         assert session.query(User).count() == 0
@@ -119,7 +120,7 @@ async def test_gate_asks_sender_without_username_to_start_first(monkeypatch, db_
 
     await bot._gate(flow)(event)
 
-    assert event.replies == ["Please start the bot first with /start in a private chat."]
+    assert event.replies == [t("start_first", "en")]
     assert calls == []
 
 

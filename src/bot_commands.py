@@ -121,7 +121,7 @@ class BotCommands:
         if user_id is None or username is None:
             return None, None, DEFAULT_LANGUAGE, False
         if not self._is_authorized(user_id):
-            # Never persist strangers: callers reject them on their own auth check
+            # Never persist strangers: this check, not the gate order, keeps them out of the DB
             return username, user_id, sender_lang, False
 
         with self._session_factory() as session:
@@ -136,13 +136,13 @@ class BotCommands:
 
         return username, user_id, sender_lang, False
 
-    def _gate(self, flow: CommandFlow, no_username: str = "start_first") -> Callable[[events.NewMessage.Event], Awaitable[None]]:
+    def _gate(self, flow: CommandFlow, missing_identity_reply: str = "start_first") -> Callable[[events.NewMessage.Event], Awaitable[None]]:
         """Wrap a command flow: resolve, authorize and register the sender, then run the flow with its context."""
 
         async def handler(event) -> None:
             username, user_id, lang, _ = await self.register_user_if_not_exists(event)
             if user_id is None:
-                await event.respond(t(no_username, lang))
+                await event.respond(t(missing_identity_reply, lang))
                 return
             if not self._is_authorized(user_id):
                 await event.respond(t("not_authorized", lang))
@@ -151,11 +151,11 @@ class BotCommands:
 
         return handler
 
-    def _command(self, name: str, no_username: str = "start_first") -> Callable[[CommandFlow], CommandFlow]:
+    def _command(self, name: str, missing_identity_reply: str = "start_first") -> Callable[[CommandFlow], CommandFlow]:
         """Register a flow for /name behind the gate."""
 
         def register(flow: CommandFlow) -> CommandFlow:
-            self.bot_client.on(events.NewMessage(pattern=rf"^/{name}(?:\s|$)"))(self._gate(flow, no_username))
+            self.bot_client.on(events.NewMessage(pattern=rf"^/{name}(?:\s|$)"))(self._gate(flow, missing_identity_reply))
             return flow
 
         return register
@@ -163,7 +163,7 @@ class BotCommands:
     def register_commands(self) -> None:
         """Register all bot command handlers."""
 
-        @self._command("start", no_username="not_authorized")
+        @self._command("start", missing_identity_reply="not_authorized")
         async def start_command(event, ctx):
             username, user_id, lang = ctx.username, ctx.user_id, ctx.lang
 
