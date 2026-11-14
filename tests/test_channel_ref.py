@@ -34,7 +34,8 @@ from bot_commands import parse_channel_ref
         ("", ("invalid_username", None)),
         ("https://evil.com/offerte", ("invalid_username", None)),
         # invalid invite hashes
-        ("+", ("invalid_invite", None)),
+        ("+", ("invalid_username", None)),  # empty hash: not an invite, as before #32
+        ("joinchat/", ("invalid_username", None)),
         ("+abc/def", ("invalid_invite", None)),
         ("joinchat/a b", ("invalid_invite", None)),
         ("+abc\ndef", ("invalid_invite", None)),

@@ -5,6 +5,7 @@ Bot command handlers for Telegram bot interactions.
 import logging
 import re
 from asyncio import TimeoutError as AsyncTimeoutError
+from enum import StrEnum
 from typing import Optional
 
 from sqlalchemy.orm import sessionmaker
@@ -32,12 +33,15 @@ _CHANNEL_PREFIXES = (
 )
 
 
-def parse_channel_ref(text: str) -> tuple[str, str | None]:
-    """Parse a user-supplied channel reference.
+class ChannelRef(StrEnum):
+    USERNAME = "username"
+    INVITE = "invite"
+    INVALID_USERNAME = "invalid_username"
+    INVALID_INVITE = "invalid_invite"
 
-    Returns ("username", name), ("invite", hash), ("invalid_username", None)
-    or ("invalid_invite", None).
-    """
+
+def parse_channel_ref(text: str) -> tuple[ChannelRef, str | None]:
+    """Parse a user-supplied channel reference into (kind, username or invite hash); value None if invalid."""
     ref = text.strip()
     for prefix in _CHANNEL_PREFIXES:
         if ref.startswith(prefix):
@@ -50,13 +54,13 @@ def parse_channel_ref(text: str) -> tuple[str, str | None]:
         invite_hash = ref[1:]
     elif ref.startswith("joinchat/"):
         invite_hash = ref[len("joinchat/"):]
-    if invite_hash is not None:
+    if invite_hash:
         if _INVITE_HASH_RE.fullmatch(invite_hash):
-            return "invite", invite_hash
-        return "invalid_invite", None
+            return ChannelRef.INVITE, invite_hash
+        return ChannelRef.INVALID_INVITE, None
     if _CHANNEL_RE.fullmatch(ref):
-        return "username", ref
-    return "invalid_username", None
+        return ChannelRef.USERNAME, ref
+    return ChannelRef.INVALID_USERNAME, None
 
 
 _CANCEL_KEYWORDS = {"/cancel", "cancel", "/annulla", "annulla"}
@@ -153,13 +157,13 @@ class BotCommands:
                 return
 
             kind, value = parse_channel_ref(channel_identifier)
-            if kind == "invalid_invite":
+            if kind is ChannelRef.INVALID_INVITE:
                 await event.respond(t("invalid_invite_link", lang))
                 return
-            if kind == "invalid_username":
+            if kind is ChannelRef.INVALID_USERNAME:
                 await event.respond(t("invalid_channel_id", lang))
                 return
-            if kind == "invite":
+            if kind is ChannelRef.INVITE:
                 # The invite hash grants channel access: never log it in full
                 log.info("/add_channel invite_hash='%s…' from user_id=%s", value[:4], user_id)
                 success, result, db_id = await self.client_commands.join_channel("", user_id, invite_hash=value, lang=lang)

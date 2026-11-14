@@ -32,7 +32,7 @@ def extract_prices(text: str) -> list[float]:
     return prices
 
 
-_CURRENCY_RE = re.compile(r"€|\beur(?:o)?\b", re.IGNORECASE)
+_CURRENCY_RE = re.compile(r"€|euro?", re.IGNORECASE)
 
 
 def parse_target_price(text: str) -> float | None:

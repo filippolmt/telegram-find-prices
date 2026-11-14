@@ -84,6 +84,8 @@ def test_single_digit_price():
         ("49 EUR", 49.0),
         ("49 eur", 49.0),
         ("49 euro", 49.0),
+        ("49EUR", 49.0),
+        ("49euro", 49.0),
         ("abc", None),
         ("", None),
         ("nan", None),
