@@ -5,6 +5,7 @@ Listen to monitored channel messages and notify users on product matches.
 import logging
 import re
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient, events
 
@@ -111,6 +112,8 @@ class ChannelListener:
                     )
                 else:
                     products = []
+                # Detach so the per-match commits don't expire them: a product unwatched meanwhile can't be reloaded.
+                session.expunge_all()
 
                 for product, user_lang_code in products:
                     lang = user_lang_code or DEFAULT_LANGUAGE
@@ -128,7 +131,12 @@ class ChannelListener:
                         message_link=message_link,
                         source="realtime",
                     ))
-                    session.commit()
+                    try:
+                        session.commit()
+                    except IntegrityError:
+                        session.rollback()
+                        log.info("Product id=%s unwatched before its match was saved, skipped", product.id)
+                        continue
 
                     if result["price_found"] is not None:
                         price_line = t("notify_price_line", lang, price=result['price_found'], target=result['target_price'])

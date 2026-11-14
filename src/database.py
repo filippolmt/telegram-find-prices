@@ -3,8 +3,10 @@ Database configuration and migrations.
 """
 
 import logging
+import sqlite3
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import create_engine, event, inspect, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from config import Config as config
@@ -12,6 +14,14 @@ from config import Config as config
 log = logging.getLogger(__name__)
 
 DATABASE_URL = config.DATABASE_URL
+
+
+@event.listens_for(Engine, "connect")
+def _enable_sqlite_foreign_keys(dbapi_conn, _record):
+    """SQLite ignores foreign keys (and ON DELETE CASCADE) unless enabled per connection."""
+    if isinstance(dbapi_conn, sqlite3.Connection):
+        dbapi_conn.execute("PRAGMA foreign_keys=ON")
+
 
 _connect_args = {}
 if DATABASE_URL.startswith("sqlite"):
@@ -24,7 +34,7 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
 def run_migrations():
-    """Add missing columns to existing tables (SQLite)."""
+    """Add missing columns and remove orphaned rows in existing tables (SQLite)."""
     inspector = inspect(engine)
     with engine.begin() as conn:
         # users.paused
@@ -54,3 +64,10 @@ def run_migrations():
             if "title" not in cols:
                 conn.execute(text("ALTER TABLE channels ADD COLUMN title VARCHAR"))
                 log.info("Migration: added column channels.title")
+
+        # price_history rows of deleted products, left before foreign keys were enforced
+        removed = conn.execute(text(
+            "DELETE FROM price_history WHERE product_id NOT IN (SELECT id FROM products)"
+        )).rowcount
+        if removed:
+            log.info("Migration: removed %d orphaned price_history rows", removed)

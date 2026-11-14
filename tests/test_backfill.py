@@ -28,6 +28,7 @@ def _fake_client():
 async def _run_backfill(db_session_factory, paused):
     with db_session_factory() as session:
         session.add(User(user_id=100, paused=paused))
+        session.flush()
         session.add(Product(user_id=100, name="iPhone 15", target_price=600))
         session.commit()
 
@@ -51,3 +52,33 @@ async def test_backfill_active_user_is_notified(db_session_factory):
     bot_client = await _run_backfill(db_session_factory, paused=False)
     bot_client.send_message.assert_awaited_once()
     assert bot_client.send_message.await_args.args[0] == 100
+
+
+async def test_backfill_skips_product_unwatched_during_scan(db_session_factory):
+    with db_session_factory() as session:
+        session.add(User(user_id=100))
+        session.flush()
+        session.add(Product(user_id=100, name="iPhone 15", target_price=600))
+        session.add(Product(user_id=100, name="AirPods"))
+        session.commit()
+
+    client = _fake_client()
+
+    async def iter_messages(entity, limit):
+        # The user unwatches iPhone 15 after the backfill read its products.
+        with db_session_factory() as session:
+            session.query(Product).filter_by(name="iPhone 15").delete()
+            session.commit()
+        yield SimpleNamespace(id=1, text="iPhone 15 a 499€")
+        yield SimpleNamespace(id=2, text="AirPods a 99€")
+
+    client.iter_messages = iter_messages
+    bot_client = MagicMock()
+    bot_client.send_message = AsyncMock()
+
+    found = await ClientCommands(client, db_session_factory, bot_client).backfill_channel("deals", 100)
+
+    with db_session_factory() as session:
+        assert [h.message_link for h in session.query(PriceHistory)] == ["https://t.me/deals/2"]
+    assert found == 1
+    bot_client.send_message.assert_awaited_once()

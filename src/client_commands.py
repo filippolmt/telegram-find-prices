@@ -4,6 +4,7 @@ Telegram user client commands (join/leave channels, backfill).
 
 import logging
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError, RPCError, UserAlreadyParticipantError
@@ -164,7 +165,11 @@ class ClientCommands:
                             message_link=msg_link,
                             source="backfill",
                         ))
-                        session.commit()
+                        try:
+                            session.commit()
+                        except IntegrityError:
+                            log.info("Product id=%s unwatched during backfill, match skipped", pd["id"])
+                            continue
 
                     matches_found += 1
 
