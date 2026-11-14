@@ -35,13 +35,14 @@ class PrintBot:
 
 def _parse_product(spec: str) -> Product:
     name, _, target = spec.partition("=")
-    return Product(user_id=USER_ID, name=name.strip(), target_price=float(target) if target else None)
+    name, _, asin = name.partition("#")
+    return Product(user_id=USER_ID, name=name.strip(), asin=asin.strip().upper() or None, target_price=float(target) if target else None)
 
 
 async def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.strip().splitlines()[0])
     parser.add_argument("--channel", action="append", required=True, help="username or numeric id (-100...)")
-    parser.add_argument("--product", action="append", required=True, help="'name' or 'name=target_price'")
+    parser.add_argument("--product", action="append", required=True, help="'name', 'name=target_price', optionally 'name#ASIN=target_price'")
     parser.add_argument("--limit", type=int, default=50, help="recent messages per channel")
     parser.add_argument("--lang", default="it")
     args = parser.parse_args()

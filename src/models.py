@@ -65,6 +65,7 @@ class Product(Base):
     name = Column(String, nullable=False)
     target_price = Column(Float, nullable=True)
     category = Column(String, nullable=True)
+    asin = Column(String, nullable=True)  # Amazon product: a post linking to it matches even without the keywords
     added_at = Column(String, nullable=False,
                       default=lambda: datetime.now(timezone.utc).isoformat())
 

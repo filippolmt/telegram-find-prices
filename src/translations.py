@@ -31,7 +31,10 @@ MESSAGES = {
         "your_channels": "Your channels:\n{channels}",
 
         # /watch
-        "watch_ask_product": "What product do you want to monitor? (type /cancel to abort)",
+        "watch_ask_product": "What product do you want to monitor? Type its name or send an Amazon product link. (type /cancel to abort)",
+        "watch_asin_keywords": "Amazon product {asin}: posts linking to it will match.\nSuggested keywords, to also match other variants and posts without the link: {keywords}\nReply 'ok' to accept, type your own keywords, or /skip to match by link only.",
+        "watch_link_not_product": "I can't read an Amazon product from that link. Try again with /watch, sending the product name or a link like amazon.it/dp/… or amzn.eu/d/….",
+        "watch_asin_no_keywords": "Amazon product {asin}: posts linking to it will match.\nType keywords to also match other variants and posts without the link, or /skip to match by link only.",
         "watch_ask_price": "At what price do you want to be notified?\nEnter a price (e.g. 799) or /skip to be notified at any price.",
         "watch_invalid_price": "Invalid price. Try again with /watch.",
         "watch_ask_category": "Category? (e.g. electronics, clothing, home)\nType /skip to skip.",
@@ -118,7 +121,10 @@ MESSAGES = {
         "your_channels": "I tuoi canali:\n{channels}",
 
         # /watch
-        "watch_ask_product": "Quale prodotto vuoi monitorare? (scrivi /annulla per annullare)",
+        "watch_ask_product": "Quale prodotto vuoi monitorare? Scrivi il nome o invia il link di un prodotto Amazon. (scrivi /annulla per annullare)",
+        "watch_asin_keywords": "Prodotto Amazon {asin}: i post con un link a questo prodotto verranno segnalati.\nParole chiave suggerite, per segnalare anche altre varianti e post senza link: {keywords}\nRispondi 'ok' per accettare, scrivi le tue parole chiave, o /salta per usare solo il link.",
+        "watch_link_not_product": "Non riesco a leggere un prodotto Amazon da quel link. Riprova con /watch, inviando il nome del prodotto o un link come amazon.it/dp/… o amzn.eu/d/….",
+        "watch_asin_no_keywords": "Prodotto Amazon {asin}: i post con un link a questo prodotto verranno segnalati.\nScrivi delle parole chiave per segnalare anche altre varianti e post senza link, o /salta per usare solo il link.",
         "watch_ask_price": "A quale prezzo vuoi essere notificato?\nInserisci un prezzo (es. 799) o /salta per essere notificato a qualsiasi prezzo.",
         "watch_invalid_price": "Prezzo non valido. Riprova con /watch.",
         "watch_ask_category": "Categoria? (es. elettronica, abbigliamento, casa)\nScrivi /salta per saltare.",

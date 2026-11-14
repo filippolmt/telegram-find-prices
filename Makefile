@@ -42,7 +42,7 @@ hooks:
 
 # Run real channel messages through Backfill and Realtime (throwaway DB, notifications printed, nothing sent).
 # The bot is paused meanwhile: one session must never run in two processes at once.
-# e.g.: make live-check ARGS='--channel pallok --product "Ninja Blast" --product "NUTILIS CLEAR=20"'
+# e.g.: make live-check ARGS='--channel pallok --product "Ninja Blast" --product "NUTILIS CLEAR=20" --product "oral-b#B0CXYZ1234=30"'
 live-check:
 	docker compose stop bot
 	docker compose run --rm -T test python src/live_check.py $(ARGS); status=$$?; docker compose up -d bot; exit $$status

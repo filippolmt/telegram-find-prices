@@ -5,14 +5,18 @@ Bot command handlers for Telegram bot interactions.
 import logging
 import re
 from asyncio import TimeoutError as AsyncTimeoutError
+from enum import StrEnum
 from typing import Optional
 
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient, events
 
+from amazon import first_product_link, slug_keywords, urls_in_text
 from client_commands import ClientCommands
 from config import Config
 from models import Channel, PriceHistory, Product, User, UserChannel
+from price_parser import parse_target_price
 from translations import DEFAULT_LANGUAGE, resolve_lang, t
 
 log = logging.getLogger(__name__)
@@ -20,8 +24,50 @@ log = logging.getLogger(__name__)
 _CHANNEL_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]{3,31}$")
 _INVITE_HASH_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
 
+_CHANNEL_PREFIXES = (
+    "https://t.me/",
+    "http://t.me/",
+    "https://telegram.me/",
+    "http://telegram.me/",
+    "t.me/",
+    "telegram.me/",
+    "tg://resolve?domain=",
+)
+
+
+class ChannelRef(StrEnum):
+    USERNAME = "username"
+    INVITE = "invite"
+    INVALID_USERNAME = "invalid_username"
+    INVALID_INVITE = "invalid_invite"
+
+
+def parse_channel_ref(text: str) -> tuple[ChannelRef, str | None]:
+    """Parse a user-supplied channel reference into (kind, username or invite hash); value None if invalid."""
+    ref = text.strip()
+    for prefix in _CHANNEL_PREFIXES:
+        if ref.startswith(prefix):
+            ref = ref[len(prefix):]
+            break
+    ref = ref.removeprefix("@").strip()
+
+    invite_hash = None
+    if ref.startswith("+"):
+        invite_hash = ref[1:]
+    elif ref.startswith("joinchat/"):
+        invite_hash = ref[len("joinchat/"):]
+    if invite_hash:
+        if _INVITE_HASH_RE.fullmatch(invite_hash):
+            return ChannelRef.INVITE, invite_hash
+        return ChannelRef.INVALID_INVITE, None
+    if _CHANNEL_RE.fullmatch(ref):
+        return ChannelRef.USERNAME, ref
+    return ChannelRef.INVALID_USERNAME, None
+
+
 _CANCEL_KEYWORDS = {"/cancel", "cancel", "/annulla", "annulla"}
 _SKIP_KEYWORDS = {"/skip", "skip", "/salta", "salta"}
+_YES_KEYWORDS = {"si", "sì", "yes", "ok"}
 
 
 class BotCommands:
@@ -113,45 +159,20 @@ class BotCommands:
                 await event.respond(t("timed_out", lang, command="/add_channel"))
                 return
 
-            # Normalize: strip common prefixes
-            txt = channel_identifier
-            prefixes = [
-                "https://t.me/",
-                "http://t.me/",
-                "https://telegram.me/",
-                "http://telegram.me/",
-                "t.me/",
-                "telegram.me/",
-                "tg://resolve?domain=",
-            ]
-            for p in prefixes:
-                if txt.startswith(p):
-                    txt = txt[len(p):]
-                    break
-            if txt.startswith("@"):
-                txt = txt[1:]
-            channel_identifier = txt.strip()
-
-            # Detect invite link (+HASH or joinchat/HASH)
-            invite_hash = None
-            if channel_identifier.startswith("+"):
-                invite_hash = channel_identifier[1:]
-            elif channel_identifier.startswith("joinchat/"):
-                invite_hash = channel_identifier[len("joinchat/"):]
-
-            if invite_hash:
-                if not _INVITE_HASH_RE.match(invite_hash):
-                    await event.respond(t("invalid_invite_link", lang))
-                    return
+            kind, value = parse_channel_ref(channel_identifier)
+            if kind is ChannelRef.INVALID_INVITE:
+                await event.respond(t("invalid_invite_link", lang))
+                return
+            if kind is ChannelRef.INVALID_USERNAME:
+                await event.respond(t("invalid_channel_id", lang))
+                return
+            if kind is ChannelRef.INVITE:
                 # The invite hash grants channel access: never log it in full
-                log.info("/add_channel invite_hash='%s…' from user_id=%s", invite_hash[:4], user_id)
-                success, result, db_id = await self.client_commands.join_channel("", user_id, invite_hash=invite_hash, lang=lang)
+                log.info("/add_channel invite_hash='%s…' from user_id=%s", value[:4], user_id)
+                success, result, db_id = await self.client_commands.join_channel("", user_id, invite_hash=value, lang=lang)
             else:
-                if not _CHANNEL_RE.match(channel_identifier):
-                    await event.respond(t("invalid_channel_id", lang))
-                    return
-                log.info("/add_channel '%s' from user_id=%s", channel_identifier, user_id)
-                success, result, db_id = await self.client_commands.join_channel(channel_identifier, user_id, lang=lang)
+                log.info("/add_channel '%s' from user_id=%s", value, user_id)
+                success, result, db_id = await self.client_commands.join_channel(value, user_id, lang=lang)
 
             await event.respond(result)
 
@@ -267,6 +288,31 @@ class BotCommands:
                         await conv.send_message(t("operation_cancelled", lang))
                         return
 
+                    asin = None
+                    if link := await first_product_link(product_name):
+                        asin, url = link
+                        suggested = slug_keywords(url)
+                        if suggested:
+                            await conv.send_message(t("watch_asin_keywords", lang, asin=asin, keywords=suggested))
+                        else:
+                            await conv.send_message(t("watch_asin_no_keywords", lang, asin=asin))
+                        resp_kw = await conv.wait_event(events.NewMessage(from_users=user_id))
+                        keywords = (resp_kw.raw_text or "").strip()
+                        if keywords.lower() in _CANCEL_KEYWORDS:
+                            await conv.send_message(t("operation_cancelled", lang))
+                            return
+                        if suggested and keywords.lower() in _YES_KEYWORDS:
+                            product_name = suggested
+                        elif keywords and keywords.lower() not in _SKIP_KEYWORDS:
+                            product_name = keywords
+                        else:
+                            # Match by link only: the ASIN as name also matches posts quoting it
+                            product_name = asin
+                    elif urls_in_text(product_name):
+                        # Never store (or log) an unreadable link, with its tracking params, as keywords
+                        await conv.send_message(t("watch_link_not_product", lang))
+                        return
+
                     await conv.send_message(t("watch_ask_price", lang))
                     resp2 = await conv.wait_event(events.NewMessage(from_users=user_id))
                     price_text = (resp2.raw_text or "").strip()
@@ -277,11 +323,8 @@ class BotCommands:
 
                     target_price = None
                     if price_text.lower() not in _SKIP_KEYWORDS:
-                        cleaned = price_text.replace("€", "").replace("EUR", "").replace("euro", "").strip()
-                        cleaned = cleaned.replace(",", ".")
-                        try:
-                            target_price = float(cleaned)
-                        except ValueError:
+                        target_price = parse_target_price(price_text)
+                        if target_price is None:
                             await conv.send_message(t("watch_invalid_price", lang))
                             return
 
@@ -303,8 +346,9 @@ class BotCommands:
 
             product_name_lower = product_name.lower()
             with self._session_factory() as session:
-                existing = session.query(Product).filter_by(
-                    user_id=user_id, name=product_name_lower
+                existing = session.query(Product).filter(
+                    Product.user_id == user_id,
+                    or_(Product.name == product_name_lower, and_(Product.asin.isnot(None), Product.asin == asin)),
                 ).first()
                 if existing:
                     await event.respond(t("watch_already_monitoring", lang, product=product_name))
@@ -333,14 +377,10 @@ class BotCommands:
                         async with client_event.conversation(event.chat_id, timeout=60) as conv:
                             resp_suggest = await conv.wait_event(events.NewMessage(from_users=user_id))
                             answer = (resp_suggest.raw_text or "").strip().lower()
-                            if answer in {"si", "sì", "yes", "ok"}:
+                            if answer in _YES_KEYWORDS:
                                 target_price = suggested_price
                             elif answer not in _SKIP_KEYWORDS | {"no"}:
-                                cleaned = answer.replace("€", "").replace("EUR", "").replace("euro", "").replace(",", ".").strip()
-                                try:
-                                    target_price = float(cleaned)
-                                except ValueError:
-                                    pass
+                                target_price = parse_target_price(answer)
                     except AsyncTimeoutError:
                         pass
 
@@ -350,12 +390,14 @@ class BotCommands:
                     name=product_name_lower,
                     target_price=target_price,
                     category=category,
+                    asin=asin,
                 ))
                 session.commit()
 
             price_info = f" at ≤{target_price:.2f}" if target_price else " at any price"
             cat_info = f" [{category}]" if category else ""
-            log.info("/watch '%s'%s%s from user_id=%s", product_name, price_info, cat_info, user_id)
+            asin_info = f" asin={asin}" if asin else ""
+            log.info("/watch '%s'%s%s%s from user_id=%s", product_name, asin_info, price_info, cat_info, user_id)
             await event.respond(t("watch_active", lang, product=product_name, price_info=price_info, cat_info=cat_info))
 
         @self.bot_client.on(events.NewMessage(pattern=r"^/list_products(?:\s|$)"))
