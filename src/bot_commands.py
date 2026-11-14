@@ -8,9 +8,11 @@ from asyncio import TimeoutError as AsyncTimeoutError
 from enum import StrEnum
 from typing import Optional
 
+from sqlalchemy import and_, or_
 from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient, events
 
+from amazon import first_product_link, slug_keywords
 from client_commands import ClientCommands
 from config import Config
 from models import Channel, PriceHistory, Product, User, UserChannel
@@ -65,6 +67,7 @@ def parse_channel_ref(text: str) -> tuple[ChannelRef, str | None]:
 
 _CANCEL_KEYWORDS = {"/cancel", "cancel", "/annulla", "annulla"}
 _SKIP_KEYWORDS = {"/skip", "skip", "/salta", "salta"}
+_YES_KEYWORDS = {"si", "sì", "yes", "ok"}
 
 
 class BotCommands:
@@ -285,6 +288,27 @@ class BotCommands:
                         await conv.send_message(t("operation_cancelled", lang))
                         return
 
+                    asin = None
+                    if link := await first_product_link(product_name):
+                        asin, url = link
+                        suggested = slug_keywords(url)
+                        if suggested:
+                            await conv.send_message(t("watch_asin_keywords", lang, asin=asin, keywords=suggested))
+                        else:
+                            await conv.send_message(t("watch_asin_no_keywords", lang, asin=asin))
+                        resp_kw = await conv.wait_event(events.NewMessage(from_users=user_id))
+                        keywords = (resp_kw.raw_text or "").strip()
+                        if keywords.lower() in _CANCEL_KEYWORDS:
+                            await conv.send_message(t("operation_cancelled", lang))
+                            return
+                        if suggested and keywords.lower() in _YES_KEYWORDS:
+                            product_name = suggested
+                        elif keywords and keywords.lower() not in _SKIP_KEYWORDS:
+                            product_name = keywords
+                        else:
+                            # Match by link only: the ASIN as name also matches posts quoting it
+                            product_name = asin
+
                     await conv.send_message(t("watch_ask_price", lang))
                     resp2 = await conv.wait_event(events.NewMessage(from_users=user_id))
                     price_text = (resp2.raw_text or "").strip()
@@ -318,8 +342,9 @@ class BotCommands:
 
             product_name_lower = product_name.lower()
             with self._session_factory() as session:
-                existing = session.query(Product).filter_by(
-                    user_id=user_id, name=product_name_lower
+                existing = session.query(Product).filter(
+                    Product.user_id == user_id,
+                    or_(Product.name == product_name_lower, and_(Product.asin.isnot(None), Product.asin == asin)),
                 ).first()
                 if existing:
                     await event.respond(t("watch_already_monitoring", lang, product=product_name))
@@ -348,7 +373,7 @@ class BotCommands:
                         async with client_event.conversation(event.chat_id, timeout=60) as conv:
                             resp_suggest = await conv.wait_event(events.NewMessage(from_users=user_id))
                             answer = (resp_suggest.raw_text or "").strip().lower()
-                            if answer in {"si", "sì", "yes", "ok"}:
+                            if answer in _YES_KEYWORDS:
                                 target_price = suggested_price
                             elif answer not in _SKIP_KEYWORDS | {"no"}:
                                 target_price = parse_target_price(answer)
@@ -361,12 +386,14 @@ class BotCommands:
                     name=product_name_lower,
                     target_price=target_price,
                     category=category,
+                    asin=asin,
                 ))
                 session.commit()
 
             price_info = f" at ≤{target_price:.2f}" if target_price else " at any price"
             cat_info = f" [{category}]" if category else ""
-            log.info("/watch '%s'%s%s from user_id=%s", product_name, price_info, cat_info, user_id)
+            asin_info = f" asin={asin}" if asin else ""
+            log.info("/watch '%s'%s%s%s from user_id=%s", product_name, asin_info, price_info, cat_info, user_id)
             await event.respond(t("watch_active", lang, product=product_name, price_info=price_info, cat_info=cat_info))
 
         @self.bot_client.on(events.NewMessage(pattern=r"^/list_products(?:\s|$)"))

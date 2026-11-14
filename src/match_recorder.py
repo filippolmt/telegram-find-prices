@@ -15,6 +15,7 @@ from telethon import TelegramClient
 from telethon.tl.custom.message import Message
 from telethon.tl.types import InlineButtonTypeUrl, MessageEntityTextUrl
 
+from amazon import message_asins
 from models import MatchSource, PriceHistory, Product, User
 from price_parser import extract_prices
 from translations import DEFAULT_LANGUAGE, t
@@ -60,14 +61,13 @@ def _normalize(text: str) -> str:
     return text
 
 
-def check_product_match(product: Product, message_text: str) -> dict | None:
-    """Check if a message matches a product.
+def check_product_match(product: Product, message_text: str, asins: set[str] = frozenset()) -> dict | None:
+    """Check if a message matches a product: its keywords, or a link to its ASIN, plus the target price.
 
     Returns a dict with notification info, or None if no match.
     """
-    text_norm = _normalize(message_text)
-    product_norm = _normalize(product.name)
-    if product_norm not in text_norm:
+    linked = product.asin is not None and product.asin in asins
+    if not linked and _normalize(product.name) not in _normalize(message_text):
         return None
 
     if product.target_price is not None:
@@ -103,10 +103,17 @@ class MatchRecorder:
         self.bot_client = bot_client
         self._session_factory = db_session_factory
 
+    def _is_active(self, user_id: int) -> bool:
+        with self._session_factory() as session:
+            return session.query(User.id).filter_by(user_id=user_id, paused=False).first() is not None
+
     async def record(self, product: Product, text: MessageText, channel_name: str, message_link: str | None, source: MatchSource) -> bool:
         """Return True if the message matched the product and the match was recorded."""
         notification = _NOTIFICATIONS[source]
         result = check_product_match(product, text.match)
+        if result is None and product.asin and self._is_active(product.user_id):
+            # Links are resolved only for an active owner of an ASIN product: otherwise no HTTP request at all
+            result = check_product_match(product, text.match, await message_asins(text.match))
         if result is None:
             return False
 
