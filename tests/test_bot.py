@@ -2,7 +2,8 @@
 Tests for bot.py create_client function.
 """
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
+
 from telethon import TelegramClient
 
 from bot import create_client

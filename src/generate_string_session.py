@@ -3,11 +3,13 @@ Generate a Telethon StringSession for the user client.
 Run once locally, then copy the output string to CLIENT_SESSION_STRING in .env.
 """
 
-import sys
 import asyncio
+import sys
+
 from telethon import TelegramClient
-from telethon.sessions import StringSession
 from telethon.errors import ApiIdInvalidError, PhoneNumberInvalidError
+from telethon.sessions import StringSession
+
 from config import Config
 
 

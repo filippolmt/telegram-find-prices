@@ -24,5 +24,8 @@ jobs:
       - name: Install dependencies
         run: uv sync --dev
 
+      - name: Lint
+        run: uv run ruff check src tests
+
       - name: Run tests
         run: uv run pytest tests/ -v

@@ -4,9 +4,16 @@ Telegram Bot - Main entry point.
 
 import asyncio
 import logging
+
 from telethon import TelegramClient
+from telethon.errors import (
+    AccessTokenExpiredError,
+    AccessTokenInvalidError,
+    ApiIdInvalidError,
+    FloodWaitError,
+    PhoneNumberInvalidError,
+)
 from telethon.sessions import StringSession
-from telethon.errors import FloodWaitError, AccessTokenExpiredError, AccessTokenInvalidError, ApiIdInvalidError, PhoneNumberInvalidError
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
@@ -17,8 +24,8 @@ from bot_commands import BotCommands
 from channel_listener import ChannelListener
 from client_commands import ClientCommands
 from config import Config
+from database import Base, SessionLocal, engine, run_migrations
 from scheduler import DailySummaryScheduler
-from database import Base, engine, SessionLocal, run_migrations
 
 
 def create_client(session_name: str, api_id: int, api_hash: str, session_string: str = "") -> TelegramClient:

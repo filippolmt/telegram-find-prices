@@ -29,9 +29,19 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
+    "ruff>=0.17.5",
     "watchdog>=6.0.0",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[tool.ruff.lint]
+# Explicit set: newer ruff releases widen the default rule set
+select = ["E4", "E7", "E9", "F", "I", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# sys.path setup must precede imports in tests; bot.py configures logging before importing modules
+"tests/*" = ["E402"]
+"src/bot.py" = ["E402"]

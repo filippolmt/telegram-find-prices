@@ -2,7 +2,10 @@
 Tests for database models.
 """
 
-from models import User, Channel, UserChannel, Product, PriceHistory
+import pytest
+from sqlalchemy.exc import IntegrityError
+
+from models import Channel, PriceHistory, Product, User, UserChannel
 
 
 def test_create_user(db_session):
@@ -48,11 +51,9 @@ def test_user_unique_constraint(db_session):
     db_session.commit()
 
     db_session.add(user2)
-    try:
+    with pytest.raises(IntegrityError):
         db_session.commit()
-        assert False, "Should fail due to duplicate user_id"
-    except Exception:
-        db_session.rollback()
+    db_session.rollback()
 
 
 def test_create_product_with_price(db_session):
@@ -92,11 +93,9 @@ def test_product_unique_per_user(db_session):
     db_session.commit()
 
     db_session.add(Product(user_id=100, name="iphone 15", target_price=700.0))
-    try:
+    with pytest.raises(IntegrityError):
         db_session.commit()
-        assert False, "Should fail due to duplicate product"
-    except Exception:
-        db_session.rollback()
+    db_session.rollback()
 
 
 def test_same_product_different_users(db_session):

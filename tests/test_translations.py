@@ -2,7 +2,13 @@
 Tests for translations module.
 """
 
-from translations import t, resolve_lang, MESSAGES, SUPPORTED_LANGUAGES, DEFAULT_LANGUAGE
+from translations import (
+    DEFAULT_LANGUAGE,
+    MESSAGES,
+    SUPPORTED_LANGUAGES,
+    resolve_lang,
+    t,
+)
 
 
 class TestResolveLang:

@@ -20,6 +20,7 @@ make stop        # Stop containers
 make test        # Run all tests
 make test-v      # Run tests verbose
 make test-one T=tests/test_models.py  # Run single test file
+make lint        # Run ruff (rule set pinned in pyproject.toml)
 make shell       # Shell into container
 make build       # Rebuild Docker image
 make clean       # Remove containers, images, volumes
