@@ -32,7 +32,7 @@ Keep these true in every change:
 - Unauthorized senders are never written to the DB.
 - User-supplied channel identifiers and invite hashes are validated by regex before reaching the Telegram API; invite hashes are logged truncated.
 - RPC errors are logged server-side; users get generic messages.
-- Notifications go only to users subscribed to the channel and not paused (backfill still notifies paused users: #28).
+- Notifications go only to users subscribed to the channel and not paused.
 
 ## Production
 
