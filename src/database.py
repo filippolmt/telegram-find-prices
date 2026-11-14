@@ -18,7 +18,10 @@ DATABASE_URL = config.DATABASE_URL
 
 @event.listens_for(Engine, "connect")
 def _enable_sqlite_foreign_keys(dbapi_conn, _record):
-    """SQLite ignores foreign keys (and ON DELETE CASCADE) unless enabled per connection."""
+    """SQLite ignores foreign keys (and ON DELETE CASCADE) unless enabled per connection.
+
+    Bound to the Engine class so every engine, test engines included, enforces them.
+    """
     if isinstance(dbapi_conn, sqlite3.Connection):
         dbapi_conn.execute("PRAGMA foreign_keys=ON")
 
@@ -74,4 +77,4 @@ def run_migrations():
                 # table comes from SQLite's own schema, not from user input
                 removed += conn.exec_driver_sql(f'DELETE FROM "{table}" WHERE rowid = ?', (rowid,)).rowcount
             if removed:
-                log.info("Migration: removed %d orphaned rows", removed)
+                log.info("Migration: removed %d orphaned rows (plus their cascaded rows)", removed)

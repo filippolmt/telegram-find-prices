@@ -32,7 +32,9 @@ def test_migration_removes_rows_with_dangling_references(db_engine, db_session_f
             "INSERT INTO price_history (product_id, user_id, channel, message_text, source, found_at) "
             "VALUES (50, 999, 'Ch', 'ghost match', 'realtime', '2026-01-01')"
         ))
+        conn.execute(text("INSERT INTO channels (id, identifier, added_at) VALUES (1, 'deals', '2026-01-01')"))
         conn.execute(text("INSERT INTO user_channels (user_id, channel_id) VALUES (100, 999)"))
+        conn.execute(text("INSERT INTO user_channels (user_id, channel_id) VALUES (999, 1)"))
         conn.commit()
         conn.exec_driver_sql("PRAGMA foreign_keys=ON")
 
