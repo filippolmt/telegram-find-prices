@@ -21,6 +21,7 @@ Telegram bot that monitors channels and notifies you when a product you're looki
 ## Prerequisites
 
 - Docker and Docker Compose
+- Optional: [uv](https://docs.astral.sh/uv/) to run tests and lint without Docker
 - A Telegram account with:
   - **API_ID** and **API_HASH** from [my.telegram.org](https://my.telegram.org)
   - **BOT_TOKEN** from [@BotFather](https://t.me/BotFather)
@@ -32,7 +33,7 @@ Telegram bot that monitors channels and notifies you when a product you're looki
 ### 1. Clone the repository
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/filippolmt/telegram-find-prices.git
 cd telegram-find-prices
 ```
 
@@ -54,6 +55,10 @@ ALLOWED_USERS=12345678
 ```
 
 `ALLOWED_USERS` restricts who can use the bot (comma-separated numeric IDs). If empty, the bot rejects everyone: set `ALLOW_ALL_USERS=true` only if you really want any Telegram user to drive your account (join channels, run backfills). Non-numeric entries are ignored with a warning in the logs.
+
+Use a separate bot (its own `BOT_TOKEN`) for local development, so a local instance never runs alongside the production one on the same bot.
+
+All available variables and their defaults are in [`src/config.py`](src/config.py).
 
 ### 3. First-time authentication
 
@@ -103,6 +108,7 @@ list_categories - Show products grouped by category
 ### 5. Start the bot
 
 ```bash
+make build   # first run, and after every dependency change
 make run-d
 ```
 
@@ -133,6 +139,7 @@ You should see:
 | `make test` | Run tests |
 | `make test-v` | Run tests with verbose output |
 | `make test-one T=tests/test_models.py` | Run a single test file |
+| `make lint` | Run ruff |
 | `make shell` | Open a shell inside the container |
 | `make build` | Rebuild the Docker image |
 | `make clean` | Remove containers, images and volumes |
@@ -151,6 +158,7 @@ You should see:
 ```
 src/
   bot.py                      # Entry point
+  dev.py                      # Auto-reload runner for development (watchdog)
   auth.py                     # File-based authentication script
   generate_string_session.py  # StringSession generator for production
   config.py                   # Configuration from .env
@@ -164,6 +172,8 @@ src/
   translations.py             # i18n: message translations (en/it)
 tests/
   conftest.py                 # Pytest fixtures
+  test_authorization.py       # ALLOWED_USERS parsing and fail-closed authorization
+  test_bot.py                 # Client creation (file session vs StringSession)
   test_models.py              # DB model tests
   test_matching.py            # Product matching logic tests
   test_price_parser.py        # Price parser tests
@@ -194,12 +204,21 @@ git push origin v1.0.0
 
 The image is tagged with the version (e.g. `1.0.0`) and `latest`. The production compose uses the pre-built image from `ghcr.io/filippolmt/telegram-find-prices:latest`. The `data/` volume persists the SQLite database and session files on the host.
 
-Variables are resolved via Docker Compose interpolation (`${VAR}`): host environment variables take precedence over the `.env` file in the `production/` directory, which takes precedence over defaults defined in the compose file.
+Variables are resolved via Docker Compose interpolation (`${VAR}`): host environment variables take precedence over the `.env` file in the `production/` directory, which takes precedence over defaults defined in the compose file. A variable missing from `production/docker-compose.yml` never reaches the container.
 
-## Tests
+### Upgrading from older versions
+
+- **Authorization is fail-closed.** An empty `ALLOWED_USERS` used to open the bot to everyone; now it rejects everyone. Set `ALLOWED_USERS` (or `ALLOW_ALL_USERS=true`) before upgrading, or the bot stops answering. The startup log warns when nobody is authorized.
+- **Runtime files are created owner-only (`600`).** Files created by older versions keep their permissions: run `chmod 600 data/*` once on the host.
+
+## Tests and lint
 
 ```bash
-make test
+make test        # in Docker
+make lint
+
+uv run pytest    # natively, faster (Python 3.14 from .python-version)
+uv run ruff check src tests
 ```
 
-Tests run in an isolated Docker container with an in-memory SQLite database.
+Tests use an in-memory SQLite database and need no Telegram credentials. Any warning fails the suite (`filterwarnings = ["error"]` in `pyproject.toml`). CI runs ruff and pytest on every push and PR to `main`.

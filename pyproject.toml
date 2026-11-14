@@ -22,6 +22,8 @@ dev = [
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 testpaths = ["tests"]
+# Any new warning fails the suite: fix it or filter it here explicitly
+filterwarnings = ["error"]
 
 [tool.ruff.lint]
 # Explicit set: newer ruff releases widen the default rule set
