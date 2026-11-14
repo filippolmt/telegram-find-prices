@@ -53,7 +53,7 @@ PHONE_NUMBER=+39123456789
 ALLOWED_USERS=12345678
 ```
 
-`ALLOWED_USERS` restricts who can use the bot (comma-separated numeric IDs). If empty, the bot is open to everyone.
+`ALLOWED_USERS` restricts who can use the bot (comma-separated numeric IDs). If empty, the bot rejects everyone: set `ALLOW_ALL_USERS=true` only if you really want any Telegram user to drive your account (join channels, run backfills). Non-numeric entries are ignored with a warning in the logs.
 
 ### 3. First-time authentication
 
