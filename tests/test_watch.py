@@ -56,8 +56,8 @@ async def test_watch_accepts_suggested_price_from_history(monkeypatch, db_sessio
     assert event.conversations == 1
 
 
-@pytest.mark.parametrize("answer", ["annulla", TimeoutError()])
-async def test_watch_cancel_or_timeout_at_suggested_price_saves_nothing(monkeypatch, db_session_factory, answer):
+@pytest.mark.parametrize("answer", ["annulla", TimeoutError(), "boh"])
+async def test_watch_cancel_timeout_or_invalid_price_at_suggested_price_saves_nothing(monkeypatch, db_session_factory, answer):
     bot = registered_bot(monkeypatch, db_session_factory)
     _priced_elsewhere(db_session_factory, "iphone", 499.0)
     event = conversation_event(["iPhone", "/skip", "/skip", answer])
@@ -66,3 +66,26 @@ async def test_watch_cancel_or_timeout_at_suggested_price_saves_nothing(monkeypa
 
     with db_session_factory() as session:
         assert session.query(Product).filter_by(user_id=1).count() == 0
+
+
+async def test_watch_invalid_suggested_price_answer_says_why(monkeypatch, db_session_factory):
+    bot = registered_bot(monkeypatch, db_session_factory)
+    _priced_elsewhere(db_session_factory, "iphone", 499.0)
+    event = conversation_event(["iPhone", "/skip", "/skip", "boh"])
+
+    await bot.bot_client.dispatch("/watch", event)
+
+    assert event.replies[-1] == t("watch_invalid_price", "en")
+
+
+@pytest.mark.parametrize("answer", ["no", "/skip"])
+async def test_watch_declined_suggested_price_watches_at_any_price(monkeypatch, db_session_factory, answer):
+    bot = registered_bot(monkeypatch, db_session_factory)
+    _priced_elsewhere(db_session_factory, "iphone", 499.0)
+    event = conversation_event(["iPhone", "/skip", "/skip", answer])
+
+    await bot.bot_client.dispatch("/watch", event)
+
+    assert event.replies[-1] == t("watch_active", "en", product="iPhone", price_info=" at any price", cat_info="")
+    with db_session_factory() as session:
+        assert session.query(Product).filter_by(user_id=1).one().target_price is None

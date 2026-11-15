@@ -42,6 +42,9 @@ MESSAGES = {
         "watch_already_monitoring": "You are already monitoring '{product}'.",
         "watch_suggest_price": "From history, the lowest price found for '{product}' is {price:.2f}.\nDo you want to use {price:.2f} as target price?\nReply 'yes' to accept, or enter a different price.",
         "watch_active": "Monitoring active: '{product}'{price_info}{cat_info}",
+        "watch_price_info": " at {price}",
+        "any_price": "any price",
+        "no_price": "N/A",
 
         # /list_products
         "no_products": "You are not monitoring any products. Use /watch to start.",
@@ -133,6 +136,9 @@ MESSAGES = {
         "watch_already_monitoring": "Stai gi\u00e0 monitorando '{product}'.",
         "watch_suggest_price": "Dallo storico, il prezzo pi\u00f9 basso trovato per '{product}' \u00e8 {price:.2f}.\nVuoi usare {price:.2f} come prezzo obiettivo?\nRispondi 's\u00ec' per accettare, o inserisci un prezzo diverso.",
         "watch_active": "Monitoraggio attivo: '{product}'{price_info}{cat_info}",
+        "watch_price_info": " a {price}",
+        "any_price": "qualsiasi prezzo",
+        "no_price": "N/D",
 
         # /list_products
         "no_products": "Non stai monitorando nessun prodotto. Usa /watch per iniziare.",

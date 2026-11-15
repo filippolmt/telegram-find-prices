@@ -8,7 +8,7 @@ from collections.abc import Awaitable, Callable
 from enum import StrEnum
 from typing import Optional
 
-from sqlalchemy import and_, or_
+from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient, events
 
@@ -19,7 +19,7 @@ from config import Config
 from match_recorder import has_keywords
 from models import Channel, PriceHistory, Product, User, UserChannel
 from price_parser import parse_target_price
-from prompts import SKIP_KEYWORDS, YES_KEYWORDS, conversation
+from prompts import NO_KEYWORDS, SKIP_KEYWORDS, YES_KEYWORDS, conversation
 from translations import DEFAULT_LANGUAGE, resolve_lang, t
 
 log = logging.getLogger(__name__)
@@ -66,6 +66,14 @@ def parse_channel_ref(text: str) -> tuple[ChannelRef, str | None]:
     if _CHANNEL_RE.fullmatch(ref):
         return ChannelRef.USERNAME, ref
     return ChannelRef.INVALID_USERNAME, None
+
+
+def _price_label(target_price: float | None, lang: str) -> str:
+    return f"≤{target_price:.2f}" if target_price else t("any_price", lang)
+
+
+def _channel_label(channel) -> str:
+    return f"{channel.title} ({channel.identifier})" if channel.title else channel.identifier
 
 
 CommandFlow = Callable[[events.NewMessage.Event, CommandContext], Awaitable[None]]
@@ -159,7 +167,7 @@ class BotCommands:
         async def add_channel_command(event, ctx):
 
             async with conversation(event, ctx, "/add_channel") as ask:
-                channel_identifier = await ask.text(t("add_channel_prompt", ctx.lang))
+                channel_identifier = await ask.text("add_channel_prompt")
             if channel_identifier is None:
                 return
 
@@ -213,20 +221,15 @@ class BotCommands:
                     await event.respond(t("no_channels", ctx.lang))
                     return
 
-            choices = []
-            for ch in user_channels:
-                display = f"{ch.title} ({ch.identifier})" if ch.title else ch.identifier
-                choices.append((display, (ch.id, display)))
-
             async with conversation(event, ctx, "/remove_channel") as ask:
-                chosen = await ask.pick("remove_channel_prompt", choices)
+                chosen = await ask.pick("remove_channel_prompt", [(_channel_label(ch), ch) for ch in user_channels])
             if chosen is None:
                 return
-            channel_id, display = chosen
+            display = _channel_label(chosen)
             log.info("/remove_channel '%s' from user_id=%s", display, ctx.user_id)
             with self._session_factory() as session:
                 link = session.query(UserChannel).filter_by(
-                    user_id=ctx.user_id, channel_id=channel_id
+                    user_id=ctx.user_id, channel_id=chosen.id
                 ).first()
                 if link:
                     session.delete(link)
@@ -238,7 +241,7 @@ class BotCommands:
         async def watch_command(event, ctx):
 
             async with conversation(event, ctx, "/watch") as ask:
-                product_name = await ask.text(t("watch_ask_product", ctx.lang))
+                product_name = await ask.text("watch_ask_product")
                 if product_name is None:
                     return
 
@@ -247,9 +250,9 @@ class BotCommands:
                     asin, url = link
                     suggested = slug_keywords(url)
                     if suggested:
-                        keywords = await ask.text(t("watch_asin_keywords", ctx.lang, asin=asin, keywords=suggested))
+                        keywords = await ask.text("watch_asin_keywords", asin=asin, keywords=suggested)
                     else:
-                        keywords = await ask.text(t("watch_asin_no_keywords", ctx.lang, asin=asin))
+                        keywords = await ask.text("watch_asin_no_keywords", asin=asin)
                     if keywords is None:
                         return
                     if suggested and keywords.lower() in YES_KEYWORDS:
@@ -268,7 +271,7 @@ class BotCommands:
                     await event.respond(t("watch_name_no_keywords", ctx.lang))
                     return
 
-                price_text = await ask.text(t("watch_ask_price", ctx.lang))
+                price_text = await ask.text("watch_ask_price")
                 if price_text is None:
                     return
                 target_price = None
@@ -278,7 +281,7 @@ class BotCommands:
                         await event.respond(t("watch_invalid_price", ctx.lang))
                         return
 
-                cat_text = await ask.text(t("watch_ask_category", ctx.lang))
+                cat_text = await ask.text("watch_ask_category")
                 if cat_text is None:
                     return
                 category = None if cat_text.lower() in SKIP_KEYWORDS else cat_text.lower()
@@ -296,7 +299,6 @@ class BotCommands:
 
                     # If there's price history for this product, suggest the minimum price
                     if target_price is None:
-                        from sqlalchemy import func
                         suggested_price = (
                             session.query(func.min(PriceHistory.price))
                             .join(Product, Product.id == PriceHistory.product_id)
@@ -306,14 +308,17 @@ class BotCommands:
 
                 # Price history for this product: offer its minimum as target
                 if suggested_price is not None:
-                    answer = await ask.text(t("watch_suggest_price", ctx.lang, product=product_name, price=suggested_price))
+                    answer = await ask.text("watch_suggest_price", product=product_name, price=suggested_price)
                     if answer is None:
                         return
                     answer = answer.lower()
                     if answer in YES_KEYWORDS:
                         target_price = suggested_price
-                    elif answer not in SKIP_KEYWORDS | {"no"}:
+                    elif answer not in SKIP_KEYWORDS | NO_KEYWORDS:
                         target_price = parse_target_price(answer)
+                        if target_price is None:
+                            await event.respond(t("watch_invalid_price", ctx.lang))
+                            return
 
             with self._session_factory() as session:
                 session.add(Product(
@@ -325,10 +330,9 @@ class BotCommands:
                 ))
                 session.commit()
 
-            price_info = f" at ≤{target_price:.2f}" if target_price else " at any price"
+            log.info("/watch '%s' asin=%s target=%s category=%s from user_id=%s", product_name, asin, target_price, category, ctx.user_id)
+            price_info = t("watch_price_info", ctx.lang, price=_price_label(target_price, ctx.lang))
             cat_info = f" [{category}]" if category else ""
-            asin_info = f" asin={asin}" if asin else ""
-            log.info("/watch '%s'%s%s%s from user_id=%s", product_name, asin_info, price_info, cat_info, ctx.user_id)
             await event.respond(t("watch_active", ctx.lang, product=product_name, price_info=price_info, cat_info=cat_info))
 
         @self._command("list_products")
@@ -341,10 +345,7 @@ class BotCommands:
                     await event.respond(t("no_products", ctx.lang))
                     return
 
-                lines = []
-                for i, p in enumerate(products, 1):
-                    price_str = f"≤{p.target_price:.2f}" if p.target_price else "any price"
-                    lines.append(f"{i}. {p.name} ({price_str})")
+                lines = [f"{i}. {p.name} ({_price_label(p.target_price, ctx.lang)})" for i, p in enumerate(products, 1)]
                 await event.respond(t("your_products", ctx.lang, products="\n".join(lines)))
 
         @self._command("unwatch")
@@ -357,10 +358,7 @@ class BotCommands:
                     await event.respond(t("no_products_short", ctx.lang))
                     return
 
-                choices = []
-                for p in products:
-                    price_str = f"≤{p.target_price:.2f}" if p.target_price else "any price"
-                    choices.append((f"{p.name} ({price_str})", p))
+                choices = [(f"{p.name} ({_price_label(p.target_price, ctx.lang)})", p) for p in products]
 
             async with conversation(event, ctx, "/unwatch") as ask:
                 chosen = await ask.pick("unwatch_prompt", choices)
@@ -408,7 +406,7 @@ class BotCommands:
                 lines = [t("history_header", ctx.lang, product=chosen.name, count=len(entries))]
                 for e in entries:
                     date_str = e.found_at[:16].replace("T", " ")
-                    price_str = f"{e.price:.2f}" if e.price else "N/A"
+                    price_str = f"{e.price:.2f}" if e.price else t("no_price", ctx.lang)
                     link_str = " link" if e.message_link else ""
                     lines.append(f"  {date_str} | {price_str} | {e.channel}{link_str}")
                 await event.respond("\n".join(lines))
@@ -440,10 +438,6 @@ class BotCommands:
 
             log.info("/stats from user_id=%s", ctx.user_id)
             with self._session_factory() as session:
-                from sqlalchemy import func
-
-                from models import UserChannel
-
                 n_products = session.query(Product).filter_by(user_id=ctx.user_id).count()
                 n_channels = session.query(UserChannel).filter_by(user_id=ctx.user_id).count()
                 n_matches = session.query(PriceHistory).filter_by(user_id=ctx.user_id).count()

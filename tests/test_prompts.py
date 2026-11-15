@@ -15,7 +15,7 @@ CHOICES = [("first", "a"), ("second", "b"), ("third", "c")]
 
 async def _text(event, ctx=CTX):
     async with conversation(event, ctx, "/cmd") as ask:
-        return await ask.text("question?")
+        return await ask.text("add_channel_prompt")
 
 
 async def _pick(event):
@@ -27,7 +27,7 @@ async def test_text_returns_stripped_answer_after_prompt():
     event = conversation_event(["  hello  "])
 
     assert await _text(event) == "hello"
-    assert event.replies == ["question?"]
+    assert event.replies == [t("add_channel_prompt", "en")]
 
 
 @pytest.mark.parametrize("keyword", ["/cancel", "Cancel", "annulla", "/annulla"])
@@ -35,21 +35,21 @@ async def test_text_cancel_keyword_returns_none_and_says_cancelled(keyword):
     event = conversation_event([keyword])
 
     assert await _text(event) is None
-    assert event.replies == ["question?", t("operation_cancelled", "en")]
+    assert event.replies == [t("add_channel_prompt", "en"), t("operation_cancelled", "en")]
 
 
 async def test_text_timeout_returns_none_and_names_command():
     event = conversation_event([TimeoutError()])
 
     assert await _text(event) is None
-    assert event.replies == ["question?", t("timed_out", "en", command="/cmd")]
+    assert event.replies == [t("add_channel_prompt", "en"), t("timed_out", "en", command="/cmd")]
 
 
 async def test_questions_share_one_conversation():
     event = conversation_event(["one", "two"])
 
     async with conversation(event, CTX, "/cmd") as ask:
-        assert [await ask.text("q1"), await ask.text("q2")] == ["one", "two"]
+        assert [await ask.text("watch_ask_price"), await ask.text("watch_ask_category")] == ["one", "two"]
     assert event.conversations == 1
 
 
@@ -76,6 +76,14 @@ async def test_pick_rejects_answer_and_says_why(answer, reply):
 
     assert await _pick(event) is None
     assert event.replies[1:] == [reply]
+
+
+async def test_text_fills_the_prompt_template():
+    event = conversation_event(["ok"])
+
+    async with conversation(event, CTX, "/watch") as ask:
+        await ask.text("watch_asin_no_keywords", asin="B0TEST1234")
+    assert event.replies == [t("watch_asin_no_keywords", "en", asin="B0TEST1234")]
 
 
 async def test_prompt_is_in_the_user_language():

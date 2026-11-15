@@ -65,3 +65,13 @@ async def test_remove_channel_unlinks_chosen_channel(monkeypatch, db_session_fac
     ]
     with db_session_factory() as session:
         assert [uc.channel_id for uc in session.query(UserChannel)] == [2]
+
+
+async def test_unwatch_list_labels_prices_in_user_language(monkeypatch, db_session_factory):
+    _seed_products(db_session_factory, "iphone", "kindle")
+    bot = registered_bot(monkeypatch, db_session_factory)
+    event = conversation_event(["annulla"], lang="it")
+
+    await bot.bot_client.dispatch("/unwatch", event)
+
+    assert event.replies[0] == t("unwatch_prompt", "it", items="1. iphone (≤10.00)\n2. kindle (qualsiasi prezzo)")

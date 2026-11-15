@@ -85,7 +85,7 @@ class DailySummaryScheduler:
                 for name, matches in by_product.items():
                     lines.append(t("summary_product", lang, name=name, count=len(matches)))
                     for m in matches[:5]:
-                        price_str = f"{m.price:.2f}" if m.price else "N/A"
+                        price_str = f"{m.price:.2f}" if m.price else t("no_price", lang)
                         link_str = " " if m.message_link else ""
                         lines.append(f"  {price_str} in {m.channel}{link_str}")
                     if len(matches) > 5:
