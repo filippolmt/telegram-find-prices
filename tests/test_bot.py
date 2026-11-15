@@ -16,7 +16,7 @@ def test_create_client_file_session(mock_client_cls):
 
     client = create_client("data/my_session", 12345, "abc123")
 
-    mock_client_cls.assert_called_once_with("data/my_session", 12345, "abc123")
+    mock_client_cls.assert_called_once_with("data/my_session", 12345, "abc123", lang_code="en", system_lang_code="en")
     assert client is mock_client_cls.return_value
 
 
@@ -31,7 +31,7 @@ def test_create_client_string_session(mock_client_cls, mock_string_session):
     client = create_client("data/my_session", 12345, "abc123", session_string="1BVtsOtest")
 
     mock_string_session.assert_called_once_with("1BVtsOtest")
-    mock_client_cls.assert_called_once_with(mock_session, 12345, "abc123")
+    mock_client_cls.assert_called_once_with(mock_session, 12345, "abc123", lang_code="en", system_lang_code="en")
     assert client is mock_client_cls.return_value
 
 
@@ -42,7 +42,7 @@ def test_create_client_empty_string_uses_file(mock_client_cls):
 
     client = create_client("data/my_session", 12345, "abc123", session_string="")
 
-    mock_client_cls.assert_called_once_with("data/my_session", 12345, "abc123")
+    mock_client_cls.assert_called_once_with("data/my_session", 12345, "abc123", lang_code="en", system_lang_code="en")
     assert client is mock_client_cls.return_value
 
 
@@ -53,7 +53,7 @@ def test_create_client_whitespace_string_uses_file(mock_client_cls):
 
     client = create_client("data/my_session", 12345, "abc123", session_string="   ")
 
-    mock_client_cls.assert_called_once_with("data/my_session", 12345, "abc123")
+    mock_client_cls.assert_called_once_with("data/my_session", 12345, "abc123", lang_code="en", system_lang_code="en")
     assert client is mock_client_cls.return_value
 
 

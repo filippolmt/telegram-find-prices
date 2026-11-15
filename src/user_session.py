@@ -1,5 +1,5 @@
 """
-The local user-client session for dev scripts (live_check.py, replay.py). One session must never run in two
+The local user-client session for dev scripts (live_check.py, replay.py, live_command.py). One session must never run in two
 processes at once: their Makefile targets pause the bot.
 """
 
@@ -12,9 +12,9 @@ from config import Config as cf
 
 
 @asynccontextmanager
-async def user_client():
-    """The connected, authorized user client; disconnected on the way out, errors included."""
-    client = create_client(cf.CLIENT_SESSION_NAME, cf.API_ID, cf.API_HASH, session_string=cf.CLIENT_SESSION_STRING)
+async def user_client(lang_code: str = "en"):
+    """The connected, authorized user client, presenting lang_code to Telegram; disconnected on the way out."""
+    client = create_client(cf.CLIENT_SESSION_NAME, cf.API_ID, cf.API_HASH, session_string=cf.CLIENT_SESSION_STRING, lang_code=lang_code)
     await client.connect()
     try:
         if not await client.is_user_authorized():
