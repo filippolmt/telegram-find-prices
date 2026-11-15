@@ -18,12 +18,11 @@ from unittest.mock import MagicMock
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from bot import create_client
 from channel_listener import ChannelListener
 from client_commands import ClientCommands
-from config import Config as cf
 from database import Base
 from models import Channel, MatchSource, PriceHistory, Product, User, UserChannel
+from user_session import channel_entity, user_client
 
 USER_ID = 1
 
@@ -51,46 +50,35 @@ async def main() -> int:
     session_factory = sessionmaker(bind=create_engine(f"sqlite:///{db_path}"))
     Base.metadata.create_all(session_factory.kw["bind"])
 
-    client = create_client(cf.CLIENT_SESSION_NAME, cf.API_ID, cf.API_HASH, session_string=cf.CLIENT_SESSION_STRING)
-    await client.connect()
-    if not await client.is_user_authorized():
-        print("User session not authorized: run `make auth` first")
-        return 1
+    async with user_client() as client:
+        entities = [await channel_entity(client, identifier) for identifier in args.channel]
 
-    entities = []
-    for identifier in args.channel:
-        try:
-            entities.append(await client.get_entity(int(identifier)))
-        except ValueError:
-            entities.append(await client.get_entity(identifier))
-
-    with session_factory() as session:
-        session.add(User(user_id=USER_ID, lang_code=args.lang))
-        session.flush()
-        session.add_all(_parse_product(spec) for spec in args.product)
-        for entity in entities:
-            # Same identifier join_channel stores: username, else the bare channel id
-            channel = Channel(identifier=getattr(entity, "username", None) or str(entity.id), title=entity.title)
-            session.add(channel)
+        with session_factory() as session:
+            session.add(User(user_id=USER_ID, lang_code=args.lang))
             session.flush()
-            session.add(UserChannel(user_id=USER_ID, channel_id=channel.id))
-        session.commit()
+            session.add_all(_parse_product(spec) for spec in args.product)
+            for entity in entities:
+                # Same identifier join_channel stores: username, else the bare channel id
+                channel = Channel(identifier=getattr(entity, "username", None) or str(entity.id), title=entity.title)
+                session.add(channel)
+                session.flush()
+                session.add(UserChannel(user_id=USER_ID, channel_id=channel.id))
+            session.commit()
 
-    bot = PrintBot()
-    commands = ClientCommands(client, session_factory, bot)
-    handlers = []
-    fake_listener_client = MagicMock()
-    fake_listener_client.on = lambda _event: lambda fn: handlers.append(fn) or fn
-    ChannelListener(fake_listener_client, bot, session_factory).register()
+        bot = PrintBot()
+        commands = ClientCommands(client, session_factory, bot)
+        handlers = []
+        fake_listener_client = MagicMock()
+        fake_listener_client.on = lambda _event: lambda fn: handlers.append(fn) or fn
+        ChannelListener(fake_listener_client, bot, session_factory).register()
 
-    for identifier, entity in zip(args.channel, entities, strict=True):
-        print(f"\n===== {entity.title} =====")
-        await commands.backfill_channel(identifier, USER_ID, limit=args.limit)
-        # Replay the same messages through the Realtime handler, as NewMessage events would arrive
-        async for message in client.iter_messages(entity, limit=args.limit):
-            event = SimpleNamespace(message=message, id=message.id, get_chat=lambda e=entity: _resolved(e))
-            await handlers[0](event)
-    await client.disconnect()
+        for identifier, entity in zip(args.channel, entities, strict=True):
+            print(f"\n===== {entity.title} =====")
+            await commands.backfill_channel(identifier, USER_ID, limit=args.limit)
+            # Replay the same messages through the Realtime handler, as NewMessage events would arrive
+            async for message in client.iter_messages(entity, limit=args.limit):
+                event = SimpleNamespace(message=message, id=message.id, get_chat=lambda e=entity: _resolved(e))
+                await handlers[0](event)
 
     with session_factory() as session:
         rows = session.query(PriceHistory.source, PriceHistory.product_id, PriceHistory.message_link, PriceHistory.price).all()
