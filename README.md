@@ -58,7 +58,7 @@ ALLOWED_USERS=12345678
 
 Use a separate bot (its own `BOT_TOKEN`) for local development, so a local instance never runs alongside the production one on the same bot.
 
-`CHANNEL_FOLDER` (optional) names a Telegram folder of the user client's account: its channels are monitored for that account as if each had been added with `/add_channel`, and a channel removed from the folder stops being monitored (the account never leaves it). Channels added by hand are never removed this way. Only the channels listed in the folder count, not its rules (e.g. "all channels"). The account must have sent `/start` to the bot. The sync runs at startup and whenever the folder changes.
+`CHANNEL_FOLDER` (optional) names a Telegram folder of the user client's account: its channels are monitored for that account as if each had been added with `/add_channel`, and a channel removed from the folder stops being monitored (the account never leaves it). Channels added by hand are never removed this way. Only the channels listed in the folder count, not its rules (e.g. "all channels"). The account must be in `ALLOWED_USERS` and have sent `/start` to the bot. The folder is read at startup, whenever it changes, and every 10 minutes: a channel moved in or out, or a `/start` sent after startup, takes effect within 10 minutes at most.
 
 All available variables and their defaults are in [`src/config.py`](src/config.py).
 

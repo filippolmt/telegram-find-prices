@@ -4,6 +4,7 @@ Listen to monitored channel messages and notify users on product matches.
 
 import logging
 
+from sqlalchemy import func
 from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient, events
 
@@ -58,7 +59,8 @@ class ChannelListener:
                         session.query(Product)
                         .join(UserChannel, UserChannel.user_id == Product.user_id)
                         .join(Channel, Channel.id == UserChannel.channel_id)
-                        .filter(Channel.identifier.in_(possible_ids))
+                        # Usernames are case-insensitive; older rows hold them as the user typed them
+                        .filter(func.lower(Channel.identifier).in_([i.lower() for i in possible_ids]))
                         .order_by(Product.id)
                         .all()
                     )

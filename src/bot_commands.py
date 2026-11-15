@@ -15,7 +15,7 @@ from telethon import TelegramClient, events
 from amazon import first_product_link, slug_keywords, urls_in_text
 from client_commands import ClientCommands
 from command_context import CommandContext
-from config import Config
+from config import Config, is_authorized
 from match_recorder import has_keywords
 from models import Channel, PriceHistory, Product, User, UserChannel
 from price_parser import parse_target_price
@@ -95,13 +95,7 @@ class BotCommands:
         self._allow_all = Config.ALLOW_ALL_USERS
 
     def _is_authorized(self, user_id: int | None) -> bool:
-        """Check if user is authorized. Fails closed: an empty ALLOWED_USERS
-        rejects everyone unless ALLOW_ALL_USERS is explicitly enabled."""
-        if user_id is None:
-            return False
-        if self._allowed_users:
-            return user_id in self._allowed_users
-        return self._allow_all
+        return is_authorized(user_id, self._allowed_users, self._allow_all)
 
     async def register_user_if_not_exists(self, event: events.NewMessage.Event) -> Optional[CommandContext]:
         """Identify the sender and register them if authorized and not yet registered.
