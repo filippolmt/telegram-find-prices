@@ -25,6 +25,7 @@ from channel_listener import ChannelListener
 from client_commands import ClientCommands
 from config import Config
 from database import Base, SessionLocal, engine, run_migrations
+from folder_sync import FolderSync
 from scheduler import DailySummaryScheduler
 
 
@@ -104,6 +105,11 @@ async def main():
         tz_name=cf.TIMEZONE,
     )
     scheduler.start()
+
+    if cf.CHANNEL_FOLDER:
+        folder_sync = FolderSync(client, client_commands, SessionLocal, cf.CHANNEL_FOLDER)
+        folder_sync.register()
+        await folder_sync.sync()
 
     await bot_client.run_until_disconnected()
     await client.disconnect()
