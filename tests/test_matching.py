@@ -175,7 +175,7 @@ _MULTI_PRODUCT_POST = """🔈 SOUNDBAR + SUBWOOFER TCL 340W
 🚛 MediaWorld - Offerta visibile solo in APP"""
 
 
-def test_multi_product_post_uses_the_price_of_the_block_naming_the_product(db_session):
+def test_multi_product_post_uses_the_price_of_the_paragraph_naming_the_product(db_session):
     product = _create_user_with_product(db_session, "bose quietcomfort cuffie", target_price=200.0)
     result = check_product_match(product, _MULTI_PRODUCT_POST)
     assert result is not None

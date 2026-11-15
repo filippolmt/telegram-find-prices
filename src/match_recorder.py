@@ -67,14 +67,14 @@ def has_keywords(name: str) -> bool:
 
 
 def _product_prices(name: str, text: str) -> list[float]:
-    """Prices of the paragraphs naming the product, since a post can list several offers each with its own price.
+    """Prices of the paragraphs naming the product, since a post can list several products each with its own price.
 
     Falls back to the whole message when no such paragraph has a price: name and price in separate paragraphs,
     or a match by link only.
     """
     key = _normalize(name)
-    blocks = [block for block in re.split(r"\n\s*\n", text) if key in _normalize(block)]
-    return [price for block in blocks for price in extract_prices(block)] or extract_prices(text)
+    paragraphs = [paragraph for paragraph in re.split(r"\n\s*\n", text) if key in _normalize(paragraph)]
+    return [price for paragraph in paragraphs for price in extract_prices(paragraph)] or extract_prices(text)
 
 
 def check_product_match(product: Product, message_text: str, asins: set[str] = frozenset()) -> dict | None:
