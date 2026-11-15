@@ -159,3 +159,18 @@ def test_price_paid_with_coupon_or_discount_is_a_price(line, prices):
 def test_supermarket_comparison_wrapped_on_two_lines_is_not_a_price():
     text = "🔴Al supermercato il singolo costa 4,37€.\nQUI SU AMAZON SOLO 3,12€\n💰 PASSA DA 9€ A 6€"
     assert extract_prices(text) == [9.0, 6.0]
+
+
+@pytest.mark.parametrize(
+    "text, prices",
+    [
+        ("💰 31.15€ 👉 15.57€", [31.15, 15.57]),
+        ("Solo €2.43", [2.43]),
+        ("Costa 1.234€", [1234.0]),
+        ("Solo 1.234,56€", [1234.56]),
+        ("Da 1.299.00€", [1299.0]),
+    ],
+)
+def test_dot_before_two_digits_is_a_decimal_point(text, prices):
+    """RisparmiareSulWeb writes "15.57€"; a dot before three digits stays a thousands separator."""
+    assert extract_prices(text) == prices
