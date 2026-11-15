@@ -43,6 +43,8 @@ Keep these true in every change:
 
 `production/docker-compose.yml` runs the image that `.github/workflows/docker-publish.yml` pushes to GHCR on `v*` tags. Variables resolve by Compose interpolation: host environment, then `production/.env`, then compose defaults. A new env var goes in that compose file (or it never reaches the container) and in both `example.env` templates; `test_env_parity.py` fails otherwise. Templates are named `example.env`, not `.env.example`, because organisation policy blocks agents from reading `.env.*`.
 
+Production runs on Runtipi: the app is `apps/telegram-find-prices` in `filippolmt/runtipi-appstore` (`config.json` form fields, `docker-compose.json`). A new env var or image change goes there too; no test spans the two repos. Renovate bumps its version on each release tag. Images are built for amd64 and arm64: the Runtipi host is ARM.
+
 ## Agent skills
 
 ### Issue tracker
