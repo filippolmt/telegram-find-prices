@@ -5,7 +5,6 @@ Bot command handlers for Telegram bot interactions.
 import logging
 import re
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
 from enum import StrEnum
 from typing import Optional
 
@@ -15,11 +14,12 @@ from telethon import TelegramClient, events
 
 from amazon import first_product_link, slug_keywords, urls_in_text
 from client_commands import ClientCommands
+from command_context import CommandContext
 from config import Config
 from match_recorder import has_keywords
 from models import Channel, PriceHistory, Product, User, UserChannel
 from price_parser import parse_target_price
-from prompts import Prompt
+from prompts import SKIP_KEYWORDS, YES_KEYWORDS, conversation
 from translations import DEFAULT_LANGUAGE, resolve_lang, t
 
 log = logging.getLogger(__name__)
@@ -66,19 +66,6 @@ def parse_channel_ref(text: str) -> tuple[ChannelRef, str | None]:
     if _CHANNEL_RE.fullmatch(ref):
         return ChannelRef.USERNAME, ref
     return ChannelRef.INVALID_USERNAME, None
-
-
-_SKIP_KEYWORDS = {"/skip", "skip", "/salta", "salta"}
-_YES_KEYWORDS = {"si", "sì", "yes", "ok"}
-
-
-@dataclass(frozen=True)
-class CommandContext:
-    """An identified command sender: what a flow receives once the gate lets them through."""
-
-    user_id: int
-    username: str
-    lang: str
 
 
 CommandFlow = Callable[[events.NewMessage.Event, CommandContext], Awaitable[None]]
@@ -171,7 +158,8 @@ class BotCommands:
         @self._command("add_channel")
         async def add_channel_command(event, ctx):
 
-            channel_identifier = await Prompt(event, ctx, "/add_channel").text(t("add_channel_prompt", ctx.lang))
+            async with conversation(event, ctx, "/add_channel") as ask:
+                channel_identifier = await ask.text(t("add_channel_prompt", ctx.lang))
             if channel_identifier is None:
                 return
 
@@ -225,109 +213,107 @@ class BotCommands:
                     await event.respond(t("no_channels", ctx.lang))
                     return
 
-                lines = []
-                channel_data = []
-                for i, ch in enumerate(user_channels, 1):
-                    display = f"{ch.title} ({ch.identifier})" if ch.title else ch.identifier
-                    lines.append(f"{i}. {display}")
-                    channel_data.append({"id": ch.id, "display": display})
+            choices = []
+            for ch in user_channels:
+                display = f"{ch.title} ({ch.identifier})" if ch.title else ch.identifier
+                choices.append((display, (ch.id, display)))
 
-            chosen = await Prompt(event, ctx, "/remove_channel").pick(
-                t("remove_channel_prompt", ctx.lang, channels="\n".join(lines)), channel_data
-            )
+            async with conversation(event, ctx, "/remove_channel") as ask:
+                chosen = await ask.pick("remove_channel_prompt", choices)
             if chosen is None:
                 return
-            log.info("/remove_channel '%s' from user_id=%s", chosen["display"], ctx.user_id)
+            channel_id, display = chosen
+            log.info("/remove_channel '%s' from user_id=%s", display, ctx.user_id)
             with self._session_factory() as session:
                 link = session.query(UserChannel).filter_by(
-                    user_id=ctx.user_id, channel_id=chosen["id"]
+                    user_id=ctx.user_id, channel_id=channel_id
                 ).first()
                 if link:
                     session.delete(link)
                     session.commit()
 
-            await event.respond(t("remove_channel_removed", ctx.lang, channel=chosen["display"]))
+            await event.respond(t("remove_channel_removed", ctx.lang, channel=display))
 
         @self._command("watch")
         async def watch_command(event, ctx):
 
-            ask = Prompt(event, ctx, "/watch")
-            product_name = await ask.text(t("watch_ask_product", ctx.lang))
-            if product_name is None:
-                return
-
-            asin = None
-            if link := await first_product_link(product_name):
-                asin, url = link
-                suggested = slug_keywords(url)
-                if suggested:
-                    keywords = await ask.text(t("watch_asin_keywords", ctx.lang, asin=asin, keywords=suggested))
-                else:
-                    keywords = await ask.text(t("watch_asin_no_keywords", ctx.lang, asin=asin))
-                if keywords is None:
-                    return
-                if suggested and keywords.lower() in _YES_KEYWORDS:
-                    product_name = suggested
-                elif has_keywords(keywords) and keywords.lower() not in _SKIP_KEYWORDS:
-                    product_name = keywords
-                else:
-                    # Match by link only: the ASIN as name also matches posts quoting it
-                    product_name = asin
-            elif urls_in_text(product_name):
-                # Never store (or log) an unreadable link, with its tracking params, as keywords
-                await event.respond(t("watch_link_not_product", ctx.lang))
-                return
-            elif not has_keywords(product_name):
-                # A sticker or punctuation as name would match every post
-                await event.respond(t("watch_name_no_keywords", ctx.lang))
-                return
-
-            price_text = await ask.text(t("watch_ask_price", ctx.lang))
-            if price_text is None:
-                return
-            target_price = None
-            if price_text.lower() not in _SKIP_KEYWORDS:
-                target_price = parse_target_price(price_text)
-                if target_price is None:
-                    await event.respond(t("watch_invalid_price", ctx.lang))
+            async with conversation(event, ctx, "/watch") as ask:
+                product_name = await ask.text(t("watch_ask_product", ctx.lang))
+                if product_name is None:
                     return
 
-            cat_text = await ask.text(t("watch_ask_category", ctx.lang))
-            if cat_text is None:
-                return
-            category = None if cat_text.lower() in _SKIP_KEYWORDS else cat_text.lower()
-
-            product_name_lower = product_name.lower()
-            suggested_price = None
-            with self._session_factory() as session:
-                existing = session.query(Product).filter(
-                    Product.user_id == ctx.user_id,
-                    or_(Product.name == product_name_lower, and_(Product.asin.isnot(None), Product.asin == asin)),
-                ).first()
-                if existing:
-                    await event.respond(t("watch_already_monitoring", ctx.lang, product=product_name))
+                asin = None
+                if link := await first_product_link(product_name):
+                    asin, url = link
+                    suggested = slug_keywords(url)
+                    if suggested:
+                        keywords = await ask.text(t("watch_asin_keywords", ctx.lang, asin=asin, keywords=suggested))
+                    else:
+                        keywords = await ask.text(t("watch_asin_no_keywords", ctx.lang, asin=asin))
+                    if keywords is None:
+                        return
+                    if suggested and keywords.lower() in YES_KEYWORDS:
+                        product_name = suggested
+                    elif has_keywords(keywords) and keywords.lower() not in SKIP_KEYWORDS:
+                        product_name = keywords
+                    else:
+                        # Match by link only: the ASIN as name also matches posts quoting it
+                        product_name = asin
+                elif urls_in_text(product_name):
+                    # Never store (or log) an unreadable link, with its tracking params, as keywords
+                    await event.respond(t("watch_link_not_product", ctx.lang))
+                    return
+                elif not has_keywords(product_name):
+                    # A sticker or punctuation as name would match every post
+                    await event.respond(t("watch_name_no_keywords", ctx.lang))
                     return
 
-                # If there's price history for this product, suggest the minimum price
-                if target_price is None:
-                    from sqlalchemy import func
-                    suggested_price = (
-                        session.query(func.min(PriceHistory.price))
-                        .join(Product, Product.id == PriceHistory.product_id)
-                        .filter(Product.name == product_name_lower, PriceHistory.price.isnot(None))
-                        .scalar()
-                    )
-
-            # Price history for this product: offer its minimum as target
-            if suggested_price is not None:
-                answer = await ask.text(t("watch_suggest_price", ctx.lang, product=product_name, price=suggested_price))
-                if answer is None:
+                price_text = await ask.text(t("watch_ask_price", ctx.lang))
+                if price_text is None:
                     return
-                answer = answer.lower()
-                if answer in _YES_KEYWORDS:
-                    target_price = suggested_price
-                elif answer not in _SKIP_KEYWORDS | {"no"}:
-                    target_price = parse_target_price(answer)
+                target_price = None
+                if price_text.lower() not in SKIP_KEYWORDS:
+                    target_price = parse_target_price(price_text)
+                    if target_price is None:
+                        await event.respond(t("watch_invalid_price", ctx.lang))
+                        return
+
+                cat_text = await ask.text(t("watch_ask_category", ctx.lang))
+                if cat_text is None:
+                    return
+                category = None if cat_text.lower() in SKIP_KEYWORDS else cat_text.lower()
+
+                product_name_lower = product_name.lower()
+                suggested_price = None
+                with self._session_factory() as session:
+                    existing = session.query(Product).filter(
+                        Product.user_id == ctx.user_id,
+                        or_(Product.name == product_name_lower, and_(Product.asin.isnot(None), Product.asin == asin)),
+                    ).first()
+                    if existing:
+                        await event.respond(t("watch_already_monitoring", ctx.lang, product=product_name))
+                        return
+
+                    # If there's price history for this product, suggest the minimum price
+                    if target_price is None:
+                        from sqlalchemy import func
+                        suggested_price = (
+                            session.query(func.min(PriceHistory.price))
+                            .join(Product, Product.id == PriceHistory.product_id)
+                            .filter(Product.name == product_name_lower, PriceHistory.price.isnot(None))
+                            .scalar()
+                        )
+
+                # Price history for this product: offer its minimum as target
+                if suggested_price is not None:
+                    answer = await ask.text(t("watch_suggest_price", ctx.lang, product=product_name, price=suggested_price))
+                    if answer is None:
+                        return
+                    answer = answer.lower()
+                    if answer in YES_KEYWORDS:
+                        target_price = suggested_price
+                    elif answer not in SKIP_KEYWORDS | {"no"}:
+                        target_price = parse_target_price(answer)
 
             with self._session_factory() as session:
                 session.add(Product(
@@ -371,26 +357,23 @@ class BotCommands:
                     await event.respond(t("no_products_short", ctx.lang))
                     return
 
-                lines = []
-                product_ids = []
-                for i, p in enumerate(products, 1):
+                choices = []
+                for p in products:
                     price_str = f"≤{p.target_price:.2f}" if p.target_price else "any price"
-                    lines.append(f"{i}. {p.name} ({price_str})")
-                    product_ids.append({"id": p.id, "name": p.name})
+                    choices.append((f"{p.name} ({price_str})", p))
 
-            chosen = await Prompt(event, ctx, "/unwatch").pick(
-                t("unwatch_prompt", ctx.lang, products="\n".join(lines)), product_ids
-            )
+            async with conversation(event, ctx, "/unwatch") as ask:
+                chosen = await ask.pick("unwatch_prompt", choices)
             if chosen is None:
                 return
-            log.info("/unwatch '%s' from user_id=%s", chosen["name"], ctx.user_id)
+            log.info("/unwatch '%s' from user_id=%s", chosen.name, ctx.user_id)
             with self._session_factory() as session:
-                product = session.query(Product).filter_by(id=chosen["id"]).first()
+                product = session.get(Product, chosen.id)
                 if product:
                     session.delete(product)
                     session.commit()
 
-            await event.respond(t("unwatched", ctx.lang, product=chosen['name']))
+            await event.respond(t("unwatched", ctx.lang, product=chosen.name))
 
         @self._command("history")
         async def history_command(event, ctx):
@@ -401,32 +384,28 @@ class BotCommands:
                     await event.respond(t("no_products_short", ctx.lang))
                     return
 
-                product_data = [{"id": p.id, "name": p.name} for p in products]
-
-            if len(product_data) == 1:
-                chosen = product_data[0]
+            if len(products) == 1:
+                chosen = products[0]
             else:
-                lines = [f"{i}. {p['name']}" for i, p in enumerate(product_data, 1)]
-                chosen = await Prompt(event, ctx, "/history").pick(
-                    t("history_prompt", ctx.lang, products="\n".join(lines)), product_data
-                )
+                async with conversation(event, ctx, "/history") as ask:
+                    chosen = await ask.pick("history_prompt", [(p.name, p) for p in products])
                 if chosen is None:
                     return
 
-            log.info("/history '%s' from user_id=%s", chosen["name"], ctx.user_id)
+            log.info("/history '%s' from user_id=%s", chosen.name, ctx.user_id)
             with self._session_factory() as session:
                 entries = (
                     session.query(PriceHistory)
-                    .filter_by(product_id=chosen["id"])
+                    .filter_by(product_id=chosen.id)
                     .order_by(PriceHistory.found_at.desc())
                     .limit(10)
                     .all()
                 )
                 if not entries:
-                    await event.respond(t("history_empty", ctx.lang, product=chosen['name']))
+                    await event.respond(t("history_empty", ctx.lang, product=chosen.name))
                     return
 
-                lines = [t("history_header", ctx.lang, product=chosen['name'], count=len(entries))]
+                lines = [t("history_header", ctx.lang, product=chosen.name, count=len(entries))]
                 for e in entries:
                     date_str = e.found_at[:16].replace("T", " ")
                     price_str = f"{e.price:.2f}" if e.price else "N/A"

@@ -48,8 +48,11 @@ def conversation_event(answers, user_id=1, username="owner"):
             raise answer
         return SimpleNamespace(raw_text=answer)
 
+    event.conversations = 0
+
     @asynccontextmanager
     async def conversation(_chat_id, timeout):
+        event.conversations += 1
         yield SimpleNamespace(wait_event=wait_event)
 
     event.client = SimpleNamespace(conversation=conversation)

@@ -53,6 +53,7 @@ async def test_watch_accepts_suggested_price_from_history(monkeypatch, db_sessio
     with db_session_factory() as session:
         product = session.query(Product).filter_by(user_id=1).one()
         assert product.target_price == 499.0
+    assert event.conversations == 1
 
 
 @pytest.mark.parametrize("answer", ["annulla", TimeoutError()])

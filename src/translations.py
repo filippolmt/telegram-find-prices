@@ -49,11 +49,11 @@ MESSAGES = {
         "your_products": "Your monitored products:\n{products}",
 
         # /unwatch
-        "unwatch_prompt": "Which product do you want to remove? Enter the number:\n{products}\n\n/cancel to abort",
+        "unwatch_prompt": "Which product do you want to remove? Enter the number:\n{items}\n\n/cancel to abort",
         "unwatched": "Removed: '{product}'",
 
         # /history
-        "history_prompt": "Which product do you want to see history for?\n{products}\n\n/cancel to abort",
+        "history_prompt": "Which product do you want to see history for?\n{items}\n\n/cancel to abort",
         "history_empty": "No matches found for '{product}'.",
         "history_header": "History for '{product}' (last {count} matches):",
 
@@ -88,7 +88,7 @@ MESSAGES = {
         "leave_channel_failed": "Error leaving channel. Please try again later.",
 
         # /remove_channel
-        "remove_channel_prompt": "Which channel do you want to remove? Enter the number:\n{channels}\n\n/cancel to abort",
+        "remove_channel_prompt": "Which channel do you want to remove? Enter the number:\n{items}\n\n/cancel to abort",
         "remove_channel_removed": "Channel removed: {channel}",
 
         # Daily summary
@@ -140,11 +140,11 @@ MESSAGES = {
         "your_products": "I tuoi prodotti monitorati:\n{products}",
 
         # /unwatch
-        "unwatch_prompt": "Quale prodotto vuoi rimuovere? Inserisci il numero:\n{products}\n\n/annulla per annullare",
+        "unwatch_prompt": "Quale prodotto vuoi rimuovere? Inserisci il numero:\n{items}\n\n/annulla per annullare",
         "unwatched": "Rimosso: '{product}'",
 
         # /history
-        "history_prompt": "Di quale prodotto vuoi vedere lo storico?\n{products}\n\n/annulla per annullare",
+        "history_prompt": "Di quale prodotto vuoi vedere lo storico?\n{items}\n\n/annulla per annullare",
         "history_empty": "Nessuna corrispondenza trovata per '{product}'.",
         "history_header": "Storico per '{product}' (ultime {count} corrispondenze):",
 
@@ -179,7 +179,7 @@ MESSAGES = {
         "leave_channel_failed": "Errore nell'abbandonare il canale. Riprova pi\u00f9 tardi.",
 
         # /remove_channel
-        "remove_channel_prompt": "Quale canale vuoi rimuovere? Inserisci il numero:\n{channels}\n\n/annulla per annullare",
+        "remove_channel_prompt": "Quale canale vuoi rimuovere? Inserisci il numero:\n{items}\n\n/annulla per annullare",
         "remove_channel_removed": "Canale rimosso: {channel}",
 
         # Daily summary
