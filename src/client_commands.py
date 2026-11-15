@@ -5,6 +5,7 @@ Telegram user client commands (join/leave channels, backfill).
 import asyncio
 import logging
 
+from sqlalchemy import func
 from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError, RPCError, UserAlreadyParticipantError
@@ -72,6 +73,8 @@ class ClientCommands:
                 try:
                     entity = await self.client.get_entity(channel_identifier)
                     channel_title = getattr(entity, "title", None)
+                    # Telegram's spelling, not the user's: the listener compares it with chat.username
+                    db_identifier = getattr(entity, "username", None) or db_identifier
                 except Exception:
                     pass
         except RPCError as e:
@@ -79,30 +82,32 @@ class ClientCommands:
             log.error("JoinChannel error for '%s': %s", target, e)
             return False, t("join_channel_failed", lang), ""
 
-        with self._session_factory() as session:
-            channel_db = session.query(Channel).filter_by(
-                identifier=db_identifier).one_or_none()
-            if channel_db is None:
-                channel_db = Channel(identifier=db_identifier, title=channel_title)
-                session.add(channel_db)
-                session.flush()
-            elif channel_title and not channel_db.title:
-                channel_db.title = channel_title
-
-            link_exists = (
-                session.query(UserChannel)
-                .filter_by(user_id=user_id, channel_id=channel_db.id)
-                .first()
-            )
-            if link_exists is None:
-                session.add(UserChannel(user_id=user_id, channel_id=channel_db.id))
-            else:
-                # Added by hand now: leaving the Channel folder must no longer unlink it
-                link_exists.from_folder = False
-
-            session.commit()
+        self.link_channel(user_id, db_identifier, channel_title)
 
         return True, t("join_channel_success", lang, channel=display_name), db_identifier
+
+    def link_channel(self, user_id: int, identifier: str, title: str | None, from_folder: bool = False) -> bool:
+        """Link a channel to the user, creating it if unknown; return whether the link is new.
+
+        A link made by hand (from_folder=False) is never unlinked by the Channel folder, even if the folder made it.
+        """
+        with self._session_factory() as session:
+            # Usernames are case-insensitive on Telegram
+            channel = session.query(Channel).filter(func.lower(Channel.identifier) == identifier.lower()).first()
+            if channel is None:
+                channel = Channel(identifier=identifier, title=title)
+                session.add(channel)
+                session.flush()
+            elif title and not channel.title:
+                channel.title = title
+
+            link = session.get(UserChannel, (user_id, channel.id))
+            if link is None:
+                session.add(UserChannel(user_id=user_id, channel_id=channel.id, from_folder=from_folder))
+            elif not from_folder:
+                link.from_folder = False
+            session.commit()
+            return link is None
 
     async def backfill_channel(self, channel_identifier: str, user_id: int, limit: int = 200) -> int:
         """Scan the last N messages of a channel for product matches.
@@ -127,17 +132,29 @@ class ClientCommands:
             channel_username = getattr(entity, "username", None)
             channel_id = getattr(entity, "id", None)
 
-            async for message in self.client.iter_messages(entity, limit=limit):
-                text = message_text(message)
-                if not text.match:
-                    continue
-                message_link = build_message_link(channel_username, channel_id, message.id)
-                for product in products:
-                    if await self._recorder.record(product, text, channel_name, message_link, MatchSource.BACKFILL):
-                        matches_found += 1
+            remaining, offset_id = limit, 0
+            while remaining > 0:
+                try:
+                    # offset_id: resume below the last message read before a FloodWait
+                    async for message in self.client.iter_messages(entity, limit=remaining, offset_id=offset_id):
+                        remaining -= 1
+                        offset_id = message.id
+                        text = message_text(message)
+                        if not text.match:
+                            continue
+                        message_link = build_message_link(channel_username, channel_id, message.id)
+                        for product in products:
+                            if await self._recorder.record(product, text, channel_name, message_link,
+                                                           MatchSource.BACKFILL):
+                                matches_found += 1
+                    break
+                except FloodWaitError as e:
+                    log.warning("FloodWait during backfill of '%s': waiting %ds, then resuming",
+                                channel_identifier, e.seconds)
+                    await asyncio.sleep(e.seconds)
 
         except FloodWaitError as e:
-            # Partial backfill; waiting keeps the next sequential backfill (Channel folder) from hitting it again
+            # Resolving the channel failed; waiting keeps the next sequential backfill (Channel folder) from hitting it
             log.warning("FloodWait during backfill of '%s': waiting %ds", channel_identifier, e.seconds)
             await asyncio.sleep(e.seconds)
         except RPCError as e:

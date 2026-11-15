@@ -66,7 +66,7 @@ def _history(db_session_factory):
 async def test_backfill_and_realtime_match_formatted_post_the_same(db_session_factory):
     bot_client = _setup(db_session_factory)
 
-    async def iter_messages(entity, limit):
+    async def iter_messages(entity, limit, offset_id=0):
         yield _formatted_post()
 
     client = MagicMock()

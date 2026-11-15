@@ -74,3 +74,23 @@ async def test_realtime_records_match_of_paused_user_without_notifying(db_sessio
     with db_session_factory() as session:
         assert [(h.source, h.price) for h in session.query(PriceHistory)] == [("realtime", 499)]
     bot_client.send_message.assert_not_awaited()
+
+
+async def test_realtime_matches_channel_added_with_other_case(db_session_factory):
+    # Rows stored before join_channel() kept Telegram's spelling hold the username as the user typed it
+    with db_session_factory() as session:
+        session.add_all([User(user_id=100), Channel(identifier="Deals")])
+        session.flush()
+        session.add(UserChannel(user_id=100, channel_id=session.query(Channel).one().id))
+        session.add(Product(user_id=100, name="iPhone 15"))
+        session.commit()
+
+    handler = _registered_handler(db_session_factory, MagicMock(send_message=AsyncMock()))
+    await handler(SimpleNamespace(
+        message=Message(id=7, peer_id=PeerChannel(123), message="iPhone 15 a 499€"),
+        id=7,
+        get_chat=AsyncMock(return_value=SimpleNamespace(title="Deals", username="deals", id=123)),
+    ))
+
+    with db_session_factory() as session:
+        assert session.query(PriceHistory).count() == 1

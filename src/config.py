@@ -33,6 +33,15 @@ def parse_allowed_users(raw: str) -> list[int]:
     return [int(e) for e in entries if e.isdigit()]
 
 
+def is_authorized(user_id: int | None, allowed_users: list[int], allow_all: bool) -> bool:
+    """Fail closed: an empty ALLOWED_USERS rejects everyone unless ALLOW_ALL_USERS is explicitly enabled."""
+    if user_id is None:
+        return False
+    if allowed_users:
+        return user_id in allowed_users
+    return allow_all
+
+
 class Config:
     """Bot configuration from environment variables."""
     API_HASH = os.getenv("API_HASH", "")
