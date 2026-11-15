@@ -125,6 +125,17 @@ async def test_intermediate_host_followed_only_after_a_short_link(http):
     assert requested == ["https://link.amazon/B01abc", "https://amzlinks.in/B01abc"]
 
 
+async def test_amzlink_to_resolves_through_its_redirector(http):
+    # Real chain (Nov 2026): amzlink.to/<code> -> r.amzlink.to/?... -> amazon.it/dp/<ASIN>
+    redirects, requested = http
+    redirects["https://amzlink.to/az0kGqTudJpp2"] = "https://r.amzlink.to/?id=1"
+    redirects["https://r.amzlink.to/?id=1"] = "https://www.amazon.it/dp/B0FJM47NB2"
+
+    assert await amazon.resolve_amazon_url("https://amzlink.to/az0kGqTudJpp2") == "https://www.amazon.it/dp/B0FJM47NB2"
+    assert await amazon.resolve_amazon_url("https://r.amzlink.to/?id=2") is None
+    assert requested == ["https://amzlink.to/az0kGqTudJpp2", "https://r.amzlink.to/?id=1"]
+
+
 async def test_transient_failure_is_not_cached(http, monkeypatch):
     calls = []
 

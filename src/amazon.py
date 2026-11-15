@@ -1,8 +1,8 @@
 """
 Amazon product links: ASIN parsing and short-link resolution.
 
-Channel URLs are untrusted: only Amazon short-link hosts (and the redirectors they
-hop through) are ever requested, the
+Channel URLs are untrusted: only Amazon short-link hosts (plus the third-party amzlink.to,
+and the redirectors they hop through) are ever requested, the
 host allowlist is checked on every redirect hop, and Amazon pages themselves are
 never fetched (the ASIN is parsed from the URL).
 """
@@ -16,10 +16,10 @@ from urllib.parse import urljoin, urlsplit
 
 log = logging.getLogger(__name__)
 
-SHORT_LINK_HOSTS = {"link.amazon", "amzn.to", "amzn.eu"}
+SHORT_LINK_HOSTS = {"link.amazon", "amzn.to", "amzn.eu", "amzlink.to"}
 # Followed only as a redirect straight from a short link, never requested when a post links to them directly.
-# amzlinks.in (Button, Inc.) sits between link.amazon and amazon.it.
-REDIRECT_HOSTS = {"amzlinks.in"}
+# amzlinks.in (Button, Inc.) sits between link.amazon and amazon.it; r.amzlink.to between amzlink.to and amazon.it.
+REDIRECT_HOSTS = {"amzlinks.in", "r.amzlink.to"}
 MAX_HOPS = 3
 _TIMEOUT = 5  # seconds per request
 _CACHE_MAX = 2000
