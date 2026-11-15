@@ -6,16 +6,12 @@ import math
 import re
 
 # Pattern for European price formats:
-# €123 | 123€ | €123,50 | 123.50€ | EUR 123 | 123 euro | 1.234,56€ | etc.
+# €123 | 123€ | €123,50 | 123.50€ | 40.5€ | EUR 123 | 123 euro | 1.234,56€ | 1.299.00€ | etc.
+# A dot before one or two digits is a decimal point ("15.57€", "40.5€"), before three a thousands separator.
+_DECIMAL_DOT = r"\.\d{1,2}(?!\d)"
+_AMOUNT = rf"(\d{{1,3}}(?:\.\d{{3}})*(?:,\d{{1,2}}|{_DECIMAL_DOT})?)"
 # "euro" before "EUR": otherwise "20 euro di sconto" matches only "20 eur".
-_PRICE_PATTERN = re.compile(
-    r"""
-    (?:€|euro|EUR)\s*(\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?)  # €1.234,56 or EUR 123
-    |
-    (\d{1,3}(?:\.\d{3})*(?:,\d{1,2})?)\s*(?:€|euro|EUR)  # 1.234,56€ or 123 euro
-    """,
-    re.IGNORECASE | re.VERBOSE,
-)
+_PRICE_PATTERN = re.compile(rf"(?:€|euro|EUR)\s*{_AMOUNT}|{_AMOUNT}\s*(?:€|euro|EUR)", re.IGNORECASE)
 
 
 # Line text right before an amount that makes it an amount off, not a price.
@@ -62,7 +58,9 @@ def is_price_only(line: str) -> bool:
 
 
 def _to_float(raw: str) -> float:
-    """Convert '1.234,56' -> 1234.56"""
+    """Convert '1.234,56' -> 1234.56, '15.57' -> 15.57, '40.5' -> 40.5"""
+    if decimal := re.search(f"{_DECIMAL_DOT}$", raw):
+        raw = raw[: decimal.start()] + "," + decimal.group()[1:]
     return float(raw.replace(".", "").replace(",", "."))
 
 

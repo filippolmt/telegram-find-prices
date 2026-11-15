@@ -288,3 +288,30 @@ def test_link_is_matched_whole_and_case_sensitive(db_session):
     post = "TCL 79€\nhttps://amzn.to/abcd\n\nTCL bis 89€\nhttps://amzn.to/ABC\n\nBOSE 161€\nhttps://amzn.to/abc"
     asin_by_url = {"https://amzn.to/abc": "B0BOSE0001", "https://amzn.to/abcd": "B0TCL00001", "https://amzn.to/ABC": "B0TCL00002"}
     assert check_product_match(product, post, asin_by_url)["price_found"] == 161.0
+
+
+def test_amounts_inside_urls_are_not_prices(db_session):
+    """Issue #57, offertemacitynet/27260: the share button's URL holds "euro%20", read as 20€."""
+    product = _create_user_with_product(db_session, "mac studio m5", target_price=2000.0)
+    post = (
+        "Mac Studio M5 Max in sconto di 350 euro in meno e prezzo mai così basso\n\n"
+        "https://www.macitynet.it/mac-studio-m5-max-in-sconto-di-350-euro-in-meno-e-prezzo-mai-cosi-basso/\n\n"
+        "https://t.me/share/url?url=https%3A%2F%2Fwww.macitynet.it%2Fmac-studio-m5-max-in-sconto-di-350-euro"
+        "-in-meno-e-prezzo-mai-cosi-basso%2F&text=Mac%20Studio%20M5%20Max%20in%20sconto%20di%20350%20euro%20in%20meno"
+    )
+    assert check_product_match(product, post) is None
+
+
+def test_link_only_match_still_reads_the_prices_around_its_url(db_session):
+    """Prices are read without URLs, but a link still locates its product's line."""
+    product = _create_user_with_product(db_session, "", target_price=200.0)
+    product.asin = "B0BOSE0001"
+    post = "TCL 79€ https://amzn.to/tcl\nBOSE 161€ https://amzn.to/bose29euro"
+    assert check_product_match(product, post, {"https://amzn.to/bose29euro": "B0BOSE0001"})["price_found"] == 161.0
+
+
+def test_amounts_inside_urls_without_scheme_are_not_prices(db_session):
+    """Issue #57: links typed as text often have no scheme."""
+    product = _create_user_with_product(db_session, "bose qc", target_price=200.0)
+    for url in ["t.me/canale/29€", "amzn.eu/d/abc-29euro", "www.sito.it/p-29-euro", "https://x.it/a-29-euro)."]:
+        assert check_product_match(product, f"Bose QC a 161€ {url}")["price_found"] == 161.0, url
