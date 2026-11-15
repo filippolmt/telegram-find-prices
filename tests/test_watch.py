@@ -101,3 +101,30 @@ async def test_watch_declined_suggested_price_watches_at_any_price(monkeypatch, 
     assert event.replies[-1] == t("watch_active", "en", product="iPhone", price_info=" at any price", cat_info="")
     with db_session_factory() as session:
         assert session.query(Product).filter_by(user_id=1).one().target_price is None
+
+
+async def test_watch_cancelled_with_the_command_saves_nothing(monkeypatch, db_session_factory):
+    bot = registered_bot(monkeypatch, db_session_factory)
+    event = conversation_event([])
+
+    await bot.bot_client.dispatch("/watch annulla", event)
+
+    assert event.replies == [t("operation_cancelled", "en")]
+    with db_session_factory() as session:
+        assert session.query(Product).count() == 0
+
+
+async def test_watch_addressed_to_this_bot_by_username_takes_the_link(monkeypatch, db_session_factory):
+    bot = registered_bot(monkeypatch, db_session_factory, bot_username="Find_Bot")
+    event = conversation_event(["/skip", "/skip", "/skip"])
+
+    await bot.bot_client.dispatch("/watch@find_bot https://www.amazon.it/dp/B0F9LJFWPB", event)
+
+    with db_session_factory() as session:
+        assert session.query(Product).one().asin == "B0F9LJFWPB"
+
+
+def test_watch_addressed_to_another_bot_is_not_handled(monkeypatch, db_session_factory):
+    bot = registered_bot(monkeypatch, db_session_factory, bot_username="find_bot")
+
+    assert [h for b, h in bot.bot_client.handlers if b.pattern("/watch@other_bot x")] == []

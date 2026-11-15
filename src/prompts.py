@@ -42,15 +42,21 @@ class Prompt:
     async def _say_with_command(self, key: str) -> None:
         await self._event.respond(t(key, self._ctx.lang, command=self._command))
 
-    async def text(self, prompt_key: str, **fields) -> str | None:
-        """Ask with the `prompt_key` template and return the stripped reply; None on timeout or a cancel keyword."""
-        await self._event.respond(t(prompt_key, self._ctx.lang, **fields))
-        try:
-            response = await self._conv.wait_event(events.NewMessage(from_users=self._ctx.user_id))
-        except TimeoutError:
-            await self._say_with_command("timed_out")
-            return None
-        answer = (response.raw_text or "").strip()
+    async def text(self, prompt_key: str, given: str = "", **fields) -> str | None:
+        """Ask with the `prompt_key` template and return the stripped reply; None on timeout or a cancel keyword.
+
+        A non-empty `given` (the text typed after the command) is the reply, without asking.
+        """
+        if given:
+            answer = given.strip()
+        else:
+            await self._event.respond(t(prompt_key, self._ctx.lang, **fields))
+            try:
+                response = await self._conv.wait_event(events.NewMessage(from_users=self._ctx.user_id))
+            except TimeoutError:
+                await self._say_with_command("timed_out")
+                return None
+            answer = (response.raw_text or "").strip()
         if answer.lower() in CANCEL_KEYWORDS:
             await self._event.respond(t("operation_cancelled", self._ctx.lang))
             return None

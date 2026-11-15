@@ -16,7 +16,7 @@ MESSAGES = {
         "number_out_of_range": "Number out of range. Try again with {command}.",
 
         # /start
-        "welcome": "Hi {username}, welcome! Use /add_channel to add a channel to monitor and /watch to follow a product.",
+        "welcome": "Hi {username}, welcome! Use /add_channel to add a channel to monitor and /watch to follow a product, also in one message: /watch <name or Amazon link>.",
         "folder_channels_monitored": "Channels monitored from your Telegram folder «{folder}»: {count}. Channels you add to it or remove from it follow within 10 minutes.",
 
         # /add_channel
@@ -111,7 +111,7 @@ MESSAGES = {
         "number_out_of_range": "Numero fuori intervallo. Riprova con {command}.",
 
         # /start
-        "welcome": "Ciao {username}, benvenuto! Usa /add_channel per aggiungere un canale da monitorare e /watch per seguire un prodotto.",
+        "welcome": "Ciao {username}, benvenuto! Usa /add_channel per aggiungere un canale da monitorare e /watch per seguire un prodotto, anche in un solo messaggio: /watch <nome o link Amazon>.",
         "folder_channels_monitored": "Canali monitorati dal tuo folder Telegram «{folder}»: {count}. I canali che aggiungi o togli dal folder vengono aggiornati entro 10 minuti.",
 
         # /add_channel

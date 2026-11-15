@@ -152,13 +152,16 @@ class BotCommands:
         """Register a flow for /name behind the gate."""
 
         def register(flow: CommandFlow) -> CommandFlow:
-            self.bot_client.on(events.NewMessage(pattern=rf"^/{name}(?:\s|$)"))(self._gate(flow, missing_identity_reply))
+            pattern = rf"^/{name}{self._addressed_to_me}(?:\s|$)"
+            self.bot_client.on(events.NewMessage(pattern=pattern))(self._gate(flow, missing_identity_reply))
             return flow
 
         return register
 
-    def register_commands(self) -> None:
-        """Register all bot command handlers."""
+    def register_commands(self, bot_username: str = "") -> None:
+        """Register all bot command handlers; also as /name@bot_username, the form group chats send."""
+        # Telegram usernames are case-insensitive; a command for another bot matches nothing
+        self._addressed_to_me = rf"(?i:@{re.escape(bot_username)})?" if bot_username else ""
 
         @self._command("start", missing_identity_reply="not_authorized")
         async def start_command(event, ctx):
@@ -176,7 +179,7 @@ class BotCommands:
         async def add_channel_command(event, ctx):
 
             async with conversation(event, ctx, "/add_channel") as ask:
-                channel_identifier = _command_argument(event) or await ask.text("add_channel_prompt")
+                channel_identifier = await ask.text("add_channel_prompt", given=_command_argument(event))
             if channel_identifier is None:
                 return
 
@@ -250,7 +253,7 @@ class BotCommands:
         async def watch_command(event, ctx):
 
             async with conversation(event, ctx, "/watch") as ask:
-                product_name = _command_argument(event) or await ask.text("watch_ask_product")
+                product_name = await ask.text("watch_ask_product", given=_command_argument(event))
                 if product_name is None:
                     return
 

@@ -79,8 +79,8 @@ class FakeBotClient:
         await matched[0](event)
 
 
-def registered_bot(monkeypatch, db_session_factory):
+def registered_bot(monkeypatch, db_session_factory, bot_username="find_bot"):
     bot = make_bot(monkeypatch, db_session_factory, [1], False)
     bot.bot_client = FakeBotClient()
-    bot.register_commands()
+    bot.register_commands(bot_username)
     return bot
