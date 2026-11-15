@@ -81,10 +81,12 @@ def has_keywords(name: str) -> bool:
 _PARAGRAPH_BREAK = re.compile(r"\n[\s\u115f\u1160\u200b-\u200d\u2060\u2800\u3164\ufeff\uffa0]*\n")
 
 
+# A URL, also one typed without its scheme ("t.me/…", "www.x.it/…"): its slug or encoded text holds no price (#57).
+_URL = re.compile(r"(?:https?://|\b(?:[a-z0-9-]+\.)+[a-z]{2,}/)\S*", re.IGNORECASE)
+
+
 def _without_urls(text: str) -> str:
-    for url in urls_in_text(text):
-        text = text.replace(url, " ")
-    return text
+    return _URL.sub(" ", text)
 
 
 def _flat(groups) -> list[float]:
@@ -99,8 +101,8 @@ def _paragraph_prices(mentions: Callable[[str], bool], paragraph: str) -> list[f
     """
     # Prices are read without URLs: a slug or an encoded share text ("euro%20") is no price (#57)
     lines = [(line, _without_urls(line)) for line in paragraph.split("\n")]
-    priced = [(line, text, prices) for line, text in lines if (prices := extract_prices(text))]
-    items = [(line, prices) for line, text, prices in priced if not is_price_only(text)]
+    priced = [(line, no_urls, prices) for line, no_urls in lines if (prices := extract_prices(no_urls))]
+    items = [(line, prices) for line, no_urls, prices in priced if not is_price_only(no_urls)]
     own = _flat(prices for line, prices in items if mentions(line)) if len(items) >= 2 else []
     return own or _flat(prices for _, _, prices in priced)
 

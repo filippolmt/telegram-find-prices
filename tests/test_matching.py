@@ -308,3 +308,10 @@ def test_link_only_match_still_reads_the_prices_around_its_url(db_session):
     product.asin = "B0BOSE0001"
     post = "TCL 79€ https://amzn.to/tcl\nBOSE 161€ https://amzn.to/bose29euro"
     assert check_product_match(product, post, {"https://amzn.to/bose29euro": "B0BOSE0001"})["price_found"] == 161.0
+
+
+def test_amounts_inside_urls_without_scheme_are_not_prices(db_session):
+    """Issue #57: links typed as text often have no scheme."""
+    product = _create_user_with_product(db_session, "bose qc", target_price=200.0)
+    for url in ["t.me/canale/29€", "amzn.eu/d/abc-29euro", "www.sito.it/p-29-euro", "https://x.it/a-29-euro)."]:
+        assert check_product_match(product, f"Bose QC a 161€ {url}")["price_found"] == 161.0, url

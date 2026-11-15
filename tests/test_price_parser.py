@@ -169,8 +169,10 @@ def test_supermarket_comparison_wrapped_on_two_lines_is_not_a_price():
         ("Costa 1.234€", [1234.0]),
         ("Solo 1.234,56€", [1234.56]),
         ("Da 1.299.00€", [1299.0]),
+        ("💰 59.9€ 👉 40.5€", [59.9, 40.5]),
+        ("Solo €4.5", [4.5]),
     ],
 )
-def test_dot_before_two_digits_is_a_decimal_point(text, prices):
-    """RisparmiareSulWeb writes "15.57€"; a dot before three digits stays a thousands separator."""
+def test_dot_before_one_or_two_digits_is_a_decimal_point(text, prices):
+    """RisparmiareSulWeb writes "15.57€" and "40.5€"; a dot before three digits stays a thousands separator."""
     assert extract_prices(text) == prices
