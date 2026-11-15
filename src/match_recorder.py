@@ -61,13 +61,18 @@ def _normalize(text: str) -> str:
     return text
 
 
+def has_keywords(name: str) -> bool:
+    """Whether a product name can match by text: one without letters or digits is in almost every message."""
+    return re.search(r"[^\W_]", name) is not None
+
+
 def check_product_match(product: Product, message_text: str, asins: set[str] = frozenset()) -> dict | None:
     """Check if a message matches a product: its keywords, or a link to its ASIN, plus the target price.
 
     Returns a dict with notification info, or None if no match.
     """
     linked = product.asin is not None and product.asin in asins
-    if not linked and _normalize(product.name) not in _normalize(message_text):
+    if not linked and (not has_keywords(product.name) or _normalize(product.name) not in _normalize(message_text)):
         return None
 
     if product.target_price is not None:

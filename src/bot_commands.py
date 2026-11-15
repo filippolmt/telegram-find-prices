@@ -17,6 +17,7 @@ from telethon import TelegramClient, events
 from amazon import first_product_link, slug_keywords, urls_in_text
 from client_commands import ClientCommands
 from config import Config
+from match_recorder import has_keywords
 from models import Channel, PriceHistory, Product, User, UserChannel
 from price_parser import parse_target_price
 from translations import DEFAULT_LANGUAGE, resolve_lang, t
@@ -308,7 +309,7 @@ class BotCommands:
                             return
                         if suggested and keywords.lower() in _YES_KEYWORDS:
                             product_name = suggested
-                        elif keywords and keywords.lower() not in _SKIP_KEYWORDS:
+                        elif has_keywords(keywords) and keywords.lower() not in _SKIP_KEYWORDS:
                             product_name = keywords
                         else:
                             # Match by link only: the ASIN as name also matches posts quoting it
@@ -316,6 +317,10 @@ class BotCommands:
                     elif urls_in_text(product_name):
                         # Never store (or log) an unreadable link, with its tracking params, as keywords
                         await conv.send_message(t("watch_link_not_product", ctx.lang))
+                        return
+                    elif not has_keywords(product_name):
+                        # A sticker or punctuation as name would match every post
+                        await conv.send_message(t("watch_name_no_keywords", ctx.lang))
                         return
 
                     await conv.send_message(t("watch_ask_price", ctx.lang))
