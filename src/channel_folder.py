@@ -32,14 +32,13 @@ class ChannelFolder:
         self.client = client
         self._commands = client_commands
         self._session_factory = db_session_factory
-        self._folder_name = folder_name
+        self.folder_name = folder_name
         self._lock = asyncio.Lock()
 
     def register(self):
         """Read the folder again whenever the account's folders change, and every POLL_SECONDS.
 
-        Polling covers folder updates that never reach the user client (not verified that they do)
-        and an owner who sends /start after startup.
+        Polling covers folder updates that never reach the user client (not verified that they do).
         """
         self.client.on(events.Raw(types=[UpdateDialogFilter, UpdateDialogFilters]))(lambda _update: self.sync())
         # Kept on self: the event loop holds tasks only weakly
@@ -50,45 +49,50 @@ class ChannelFolder:
             await asyncio.sleep(POLL_SECONDS)
             await self.sync()
 
-    async def sync(self):
+    async def owner_id(self) -> int:
+        """The bot owner: the user client's account, whose folder this is."""
+        return (await self.client.get_me()).id
+
+    async def sync(self) -> int | None:
+        """Read the folder and update the owner's links; return its channel count, None if it was not read."""
         # A folder update while the folder is being read (e.g. at startup) must not link and backfill twice
         async with self._lock:
             try:
-                await self._sync()
+                return await self._sync()
             except RPCError as e:
                 # Nothing was unlinked: a partial channel list must never pass for the whole folder
-                log.error("Channel folder '%s': update failed: %s", self._folder_name, e)
+                log.error("Channel folder '%s': update failed: %s", self.folder_name, e)
             except Exception:
                 # Awaited at startup: a failure here must not take the bot down
-                log.exception("Channel folder '%s': update failed", self._folder_name)
+                log.exception("Channel folder '%s': update failed", self.folder_name)
 
-    async def _sync(self):
-        owner_id = (await self.client.get_me()).id
+    async def _sync(self) -> int | None:
+        owner_id = await self.owner_id()
         if not is_authorized(owner_id, Config.ALLOWED_USERS, Config.ALLOW_ALL_USERS):
             # Fail closed: the folder's links would keep notifying an owner no longer allowed
             log.warning("Channel folder '%s': the account owner (user_id=%s) is not in ALLOWED_USERS, "
-                        "removing the folder's channels", self._folder_name, owner_id)
+                        "removing the folder's channels", self.folder_name, owner_id)
             self._unlink_left(owner_id, [])
             return
         with self._session_factory() as session:
             registered = session.query(User).filter_by(user_id=owner_id).first() is not None
         if not registered:
             log.warning("Channel folder '%s': the account owner (user_id=%s) has not registered: "
-                        "send /start to the bot first", self._folder_name, owner_id)
+                        "send /start to the bot first", self.folder_name, owner_id)
             return
         result = await self.client(GetDialogFiltersRequest())
         # DialogFilterDefault ("All chats") has no title
         folder = next((f for f in result.filters
-                       if getattr(f, "title", None) and f.title.text == self._folder_name), None)
+                       if getattr(f, "title", None) and f.title.text == self.folder_name), None)
         if folder is None:
             log.warning("Channel folder '%s': the account has no folder with this name, nothing changed",
-                        self._folder_name)
+                        self.folder_name)
             return
 
         rules = [r for r in _RULE_FLAGS if getattr(folder, r, None)]
         if rules:
             log.warning("Channel folder '%s': ignoring its rules (%s), only its listed channels count",
-                        self._folder_name, ", ".join(rules))
+                        self.folder_name, ", ".join(rules))
 
         channels = {}
         # A chat pinned inside the folder is listed in pinned_peers instead of include_peers
@@ -99,7 +103,7 @@ class ChannelFolder:
                 entity = await self.client.get_entity(peer)
             except ChannelPrivateError:
                 log.warning("Channel folder '%s': skipping channel %s, no longer accessible",
-                            self._folder_name, peer.channel_id)
+                            self.folder_name, peer.channel_id)
                 continue
             # Same identifier join_channel() stores, so ChannelListener matches it
             channels[entity.username or str(entity.id)] = entity.title
@@ -107,10 +111,11 @@ class ChannelFolder:
         entered = [identifier for identifier, title in channels.items()
                    if self._commands.link_channel(owner_id, identifier, title, from_folder=True)]
         self._unlink_left(owner_id, list(channels))
-        log.info("Channel folder '%s': %d channels, %d new", self._folder_name, len(channels), len(entered))
+        log.info("Channel folder '%s': %d channels, %d new", self.folder_name, len(channels), len(entered))
         # Sequential: a large folder read for the first time would otherwise hit FloodWait at once
         for identifier in entered:
             await self._commands.backfill_channel(identifier, owner_id)
+        return len(channels)
 
     def _unlink_left(self, owner_id: int, identifiers: list[str]):
         """Unlink the folder's links whose channel is no longer in it; links made by hand stay."""

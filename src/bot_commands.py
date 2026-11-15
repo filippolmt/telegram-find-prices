@@ -13,6 +13,7 @@ from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient, events
 
 from amazon import first_product_link, slug_keywords, urls_in_text
+from channel_folder import ChannelFolder
 from client_commands import ClientCommands
 from command_context import CommandContext
 from config import Config, is_authorized
@@ -87,8 +88,10 @@ class BotCommands:
         bot_client: TelegramClient,
         client_commands: ClientCommands,
         db_session_factory: sessionmaker,
+        channel_folder: ChannelFolder | None = None,
     ):
         self.bot_client = bot_client
+        self.channel_folder = channel_folder
         self.client_commands = client_commands
         self._session_factory = db_session_factory
         self._allowed_users = Config.ALLOWED_USERS
@@ -156,6 +159,12 @@ class BotCommands:
 
             log.info("/start from @%s (id=%s)", ctx.username, ctx.user_id)
             await event.respond(t("welcome", ctx.lang, username=ctx.username))
+            # The owner's /start is what the Channel folder waits for: read it now, not at the next poll
+            if self.channel_folder and ctx.user_id == await self.channel_folder.owner_id():
+                count = await self.channel_folder.sync()
+                if count is not None:
+                    await event.respond(t("folder_channels_monitored", ctx.lang,
+                                          folder=self.channel_folder.folder_name, count=count))
 
         @self._command("add_channel")
         async def add_channel_command(event, ctx):
