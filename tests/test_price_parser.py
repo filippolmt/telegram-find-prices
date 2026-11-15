@@ -106,6 +106,7 @@ def test_distance_from_historical_low_is_not_a_price():
     "line",
     [
         "Prodotti inclusi di 50€ di coupon",
+        "32€ di ribasso per il OneBlade Pro",
         "Subito 10€ di sconto",
         "🛒 Sconto 5,77€ visibile in APP",
         "Sconto: 5€",

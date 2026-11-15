@@ -5,7 +5,7 @@ Users watch products and get notified when a Telegram channel they follow posts 
 ## Language
 
 **Match**:
-A channel message that names a watched product, or links to its Amazon page, and, when the product has a target price, quotes a price at or below it; in a post listing several products, the price is taken from the paragraphs naming the product. Every match is recorded in the user's price history, and stays there only while the product is watched: unwatching a product removes its matches. A product name without letters or digits names nothing, so that product matches only by link.
+A channel message that names a watched product, or links to its Amazon page, and, when the product has a target price, quotes a price at or below it; in a post listing several products, the price is taken from the paragraphs (or, in a one-per-line list, the lines) naming the product or holding its link. Every match is recorded in the user's price history, and stays there only while the product is watched: unwatching a product removes its matches. A product name without letters or digits names nothing, so that product matches only by link.
 _Avoid_: Hit, alert, offer
 
 **Realtime**:

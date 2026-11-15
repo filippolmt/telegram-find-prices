@@ -152,7 +152,7 @@ def test_name_without_keywords_matches_nothing(db_session):
 def test_name_without_keywords_still_matches_by_link(db_session):
     product = _create_user_with_product(db_session, "")
     product.asin = "B0TEST1234"
-    assert check_product_match(product, "offerta", {"B0TEST1234"}) is not None
+    assert check_product_match(product, "offerta https://amzn.eu/d/x", {"https://amzn.eu/d/x": "B0TEST1234"}) is not None
 
 
 # --- Posts listing several products (#72) ---
@@ -192,3 +192,70 @@ def test_price_in_a_paragraph_without_the_name_still_counts(db_session):
     result = check_product_match(product, "🔥 Ninja Blast frullatore portatile\n\n📉 In offerta a 39,99€")
     assert result is not None
     assert result["price_found"] == 39.99
+
+
+def test_price_in_a_paragraph_after_the_name_counts(db_session):
+    """CouponsItalia: a banner, then the product, then its price."""
+    product = _create_user_with_product(db_session, "fairy platinum", target_price=40.0)
+    post = "😱DA NON PERDEREEE😱\n\n❗192 Caps Fairy Platinum Plus\n\n💰  PASSA DA 69,99€ A 36,99€\n👉  Apri Link Amazon"
+    assert check_product_match(product, post)["price_found"] == 36.99
+
+
+def test_variant_listed_under_the_only_price_takes_it(db_session):
+    """pallok/82646: variants listed after the one price of the post."""
+    product = _create_user_with_product(db_session, "orsetti d'oro", target_price=1.0)
+    post = "Selezione Haribo\n\n🍬 Haribo Caramelle Gommose\n📉 In offerta a 0,99€\n\n🔗 Coccodrì\n🔗 Orsetti D'Oro\n\nDisclaimer #adv"
+    assert check_product_match(product, post)["price_found"] == 0.99
+
+
+def test_product_per_line_list_uses_the_price_on_the_products_line(db_session):
+    """Issue #76, affaridanerd/37621: one product per line, no blank lines between them."""
+    product = _create_user_with_product(db_session, "ocarina of time", target_price=100.0)
+    post = (
+        "🔴 Nintendo Switch 2\n\n"
+        "🥇 The Legend of Zelda: Ocarina of Time - 69,00€\n"
+        "🥈 Nintendo Switch Sports Resort - 59,90€\n"
+        "🥉 Donkey Kong Bananza - 55,99€"
+    )
+    assert check_product_match(product, post)["price_found"] == 69.0
+
+
+def test_name_line_price_with_the_offer_below_keeps_the_offer(db_session):
+    """pallok/82717: the name line carries the card's face value, the next line the price."""
+    product = _create_user_with_product(db_session, "playstation network card", target_price=70.0)
+    post = "75€ di credito a 61€ da Eneba\n\n🎮 PlayStation Network Card 75€\n📉 In offerta a 60,96€"
+    assert check_product_match(product, post)["price_found"] == 60.96
+
+
+def test_blank_line_of_invisible_characters_separates_paragraphs(db_session):
+    """Issue #76: a "blank" line made of a Hangul filler or zero-width characters."""
+    product = _create_user_with_product(db_session, "bose cuffie", target_price=200.0)
+    post = "TCL soundbar\nA 79,47€\n\u3164\nBOSE cuffie\nA 161,46€\n\u200b\u200d\nFooter"
+    assert check_product_match(product, post)["price_found"] == 161.46
+
+
+def test_link_only_match_in_multi_product_post_uses_the_linked_paragraph(db_session):
+    """Issue #75: the product's name is not in the post, its link is."""
+    product = _create_user_with_product(db_session, "cuffie noise cancelling", target_price=200.0)
+    product.asin = "B0BOSE0001"
+    post = _MULTI_PRODUCT_POST.replace("https://tidd.ly/3UWtBQi", "https://amzn.eu/d/bose")
+    result = check_product_match(product, post, {"https://amzn.eu/d/bose": "B0BOSE0001", "https://tidd.ly/3VrLDKz": "B0TCL00001"})
+    assert result["price_found"] == 161.46
+
+
+def test_section_heading_takes_the_prices_below_it(db_session):
+    """affaridanerd/37621: a heading names the product, its items follow; sections above are other products."""
+    product = _create_user_with_product(db_session, "nintendo switch 2", target_price=100.0)
+    post = "🔵 PlayStation 5\n\n🥇 Grand Theft Auto V - 19,99€\n\n🔴 Nintendo Switch 2\n\n🥇 Donkey Kong Bananza - 55,99€"
+    assert check_product_match(product, post)["price_found"] == 55.99
+
+
+def test_link_in_its_own_paragraph_takes_the_post_price(db_session):
+    """pallok/82680: the link sits below its product's paragraph, a later paragraph quotes another amount."""
+    product = _create_user_with_product(db_session, "sedia", target_price=40.0)
+    product.name, product.asin = "", "B0SEDIA001"
+    post = (
+        "🪑 Sedia da Ufficio Ergonomica\n📉 In offerta a 34,02€\n\n🔗 https://tidd.ly/4e8ST4h\n\n"
+        "👉 Qui altre offerte (PayPal da 45€ terminato)"
+    )
+    assert check_product_match(product, post, {"https://tidd.ly/4e8ST4h": "B0SEDIA001"})["price_found"] == 34.02

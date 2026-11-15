@@ -32,8 +32,8 @@ _DISCOUNT_PREFIX = re.compile(
     """,
     re.IGNORECASE | re.VERBOSE,
 )
-# Text right after an amount that makes it an amount off: "1€ dal minimo", "10€ di sconto", "200 euro in meno".
-_DISCOUNT_SUFFIX = re.compile(r"\s*(?:dal\s+(?:prezzo\s+)?minimo|di\s+(?:sconto|coupon)|in\s+meno)\b", re.IGNORECASE)
+# Text right after an amount that makes it an amount off: "1€ dal minimo", "10€ di sconto", "32€ di ribasso", "200 euro in meno".
+_DISCOUNT_SUFFIX = re.compile(r"\s*(?:dal\s+(?:prezzo\s+)?minimo|di\s+(?:sconto|coupon|ribasso)|in\s+meno)\b", re.IGNORECASE)
 
 
 def _is_discount(text: str, match: re.Match) -> bool:
