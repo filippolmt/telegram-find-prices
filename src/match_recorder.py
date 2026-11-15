@@ -66,6 +66,17 @@ def has_keywords(name: str) -> bool:
     return re.search(r"[^\W_]", name) is not None
 
 
+def _product_prices(name: str, text: str) -> list[float]:
+    """Prices of the paragraphs naming the product, since a post can list several offers each with its own price.
+
+    Falls back to the whole message when no such paragraph has a price: name and price in separate paragraphs,
+    or a match by link only.
+    """
+    key = _normalize(name)
+    blocks = [block for block in re.split(r"\n\s*\n", text) if key in _normalize(block)]
+    return [price for block in blocks for price in extract_prices(block)] or extract_prices(text)
+
+
 def check_product_match(product: Product, message_text: str, asins: set[str] = frozenset()) -> dict | None:
     """Check if a message matches a product: its keywords, or a link to its ASIN, plus the target price.
 
@@ -76,7 +87,7 @@ def check_product_match(product: Product, message_text: str, asins: set[str] = f
         return None
 
     if product.target_price is not None:
-        prices = extract_prices(message_text)
+        prices = _product_prices(product.name, message_text)
         if not prices or min(prices) > product.target_price:
             return None
         return {

@@ -153,3 +153,42 @@ def test_name_without_keywords_still_matches_by_link(db_session):
     product = _create_user_with_product(db_session, "")
     product.asin = "B0TEST1234"
     assert check_product_match(product, "offerta", {"B0TEST1234"}) is not None
+
+
+# --- Posts listing several products (#72) ---
+
+_MULTI_PRODUCT_POST = """🔈 SOUNDBAR + SUBWOOFER TCL 340W
+📉 A 79,47€ invece di 93,49€
+🛒 Sconto 14,02€ visibile in APP
+🔗 https://tidd.ly/3VrLDKz
+
+📞 BOSE QuietComfort auricolari
+📉 A 93,46€ invece di 109,95€
+🛒 Sconto 16,49€ visibile in APP
+🔗 https://tidd.ly/4BUgkbI
+
+🎧 BOSE QuietComfort cuffie
+📉 A 161,46€ invece di 189,95€
+🛒 Sconto 28,49€ visibile in APP
+🔗 https://tidd.ly/3UWtBQi
+
+🚛 MediaWorld - Offerta visibile solo in APP"""
+
+
+def test_multi_product_post_uses_the_price_of_the_block_naming_the_product(db_session):
+    product = _create_user_with_product(db_session, "bose quietcomfort cuffie", target_price=200.0)
+    result = check_product_match(product, _MULTI_PRODUCT_POST)
+    assert result is not None
+    assert result["price_found"] == 161.46
+
+
+def test_multi_product_post_ignores_another_products_lower_price(db_session):
+    product = _create_user_with_product(db_session, "bose quietcomfort cuffie", target_price=100.0)
+    assert check_product_match(product, _MULTI_PRODUCT_POST) is None
+
+
+def test_price_in_a_paragraph_without_the_name_still_counts(db_session):
+    product = _create_user_with_product(db_session, "ninja blast", target_price=50.0)
+    result = check_product_match(product, "🔥 Ninja Blast frullatore portatile\n\n📉 In offerta a 39,99€")
+    assert result is not None
+    assert result["price_found"] == 39.99
