@@ -227,3 +227,4 @@ __marimo__/
 .env
 *.session-journal
 data/
+CLAUDE.local.md
