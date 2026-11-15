@@ -127,3 +127,18 @@ def test_discount_line_variants_are_not_prices(line):
 def test_price_after_coupon_or_discount_mid_line_is_a_price(line, price):
     """Only a line that opens with 'Sconto'/'Coupon' states an amount off; mid-line it is the price paid."""
     assert extract_prices(line) == [price]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "Risparmi 250,00€ con 👉 @scontitoday",
+        "Apple Watch Series 12 in titanio oro con 200 euro di sconto",
+        "Il nuovo Studio Display di Apple costa 200 euro in meno su Amazon",
+        "✅ Applica il coupon da 2,92€ al check out per ottenere questo prezzo!",
+        'Clicca su "Applica coupon 10€" subito sotto al prezzo!',
+        "🎁 Ottieni un omaggio con una spesa minima di 35€",
+    ],
+)
+def test_amounts_off_seen_in_real_channels_are_not_prices(line):
+    assert extract_prices(f"💰 Scende a 649,90€ da 899,90€\n{line}") == [649.90, 899.90]
