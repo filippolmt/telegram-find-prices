@@ -11,17 +11,20 @@ def _mode(p):
     return p.stat().st_mode & 0o777
 
 
-def test_world_writable_dir_and_files_become_owner_only(tmp_path):
+def test_world_writable_dir_and_files_become_owner_only(tmp_path, caplog):
     (tmp_path / "db.sqlite3").touch(mode=0o777)
     (tmp_path / "bot_session.session").touch(mode=0o777)
     tmp_path.chmod(0o777)
     for p in tmp_path.iterdir():
         p.chmod(0o777)
 
-    tighten_permissions(tmp_path)
+    with caplog.at_level(logging.WARNING):
+        tighten_permissions(tmp_path)
 
     assert _mode(tmp_path) == 0o700
     assert all(_mode(p) == 0o600 for p in tmp_path.iterdir())
+    assert f"{tmp_path} from 777 to 700" in caplog.text
+    assert f"{tmp_path / 'db.sqlite3'} from 777 to 600" in caplog.text
 
 
 @pytest.mark.parametrize("error", [PermissionError(), OSError(errno.EROFS, "Read-only file system")])
