@@ -18,6 +18,7 @@ from telethon.tl.types import (
 
 from channel_listener import ChannelListener
 from client_commands import ClientCommands
+from match_recorder import message_text
 from models import Channel, PriceHistory, Product, User, UserChannel
 
 TEXT = "iPhone 15 a 499€\nVisualizza offerta su Amazon"
@@ -83,4 +84,28 @@ async def test_backfill_and_realtime_match_formatted_post_the_same(db_session_fa
     matches = [("iPhone 15", 499, TEXT), ("B0LINKTEXT", None, TEXT), ("B0BUTTON", None, TEXT)]
     assert _history(db_session_factory) == sorted(
         [("backfill", *m) for m in matches] + [("realtime", *m) for m in matches]
+    )
+
+
+def test_hidden_link_stays_on_its_line_and_buttons_in_their_own_paragraph():
+    """Issue #75: a link-only match finds the product's paragraph by where its link sits."""
+    text = "🔥 Offerte\n\nTCL soundbar 79€\n👉 Apri Link Amazon\n\nBOSE cuffie 161€\n👉 Apri Link Amazon"
+    message = Message(
+        id=8,
+        peer_id=PeerChannel(123),
+        message=text,
+        entities=[
+            # Telegram offsets count UTF-16 units: each emoji before the link counts two
+            MessageEntityTextUrl(offset=text.index("Apri") + 2, length=16, url="https://amzn.eu/d/tcl"),
+            MessageEntityTextUrl(offset=text.rindex("Apri") + 3, length=16, url="https://amzn.eu/d/bose"),
+        ],
+        reply_markup=ReplyInlineMarkup([
+            KeyboardInlineButtonRow([KeyboardInlineButton("Compra", InlineButtonTypeUrl("https://amzn.eu/d/all"))]),
+        ]),
+    )
+
+    assert message_text(message) == (
+        "🔥 Offerte\n\nTCL soundbar 79€\n👉 Apri Link Amazon https://amzn.eu/d/tcl\n\n"
+        "BOSE cuffie 161€\n👉 Apri Link Amazon https://amzn.eu/d/bose\n\nhttps://amzn.eu/d/all",
+        text,
     )

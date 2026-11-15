@@ -132,20 +132,20 @@ async def resolve_amazon_url(url: str) -> str | None:
 
 
 async def _linked_products(text: str):
-    """(asin, amazon_url) for each product URL in text: direct ones parsed, short links resolved."""
+    """(url, asin, amazon_url) for each product URL in text: direct ones parsed, short links resolved."""
     for url in dict.fromkeys(urls_in_text(text)):
         resolved = await resolve_amazon_url(url)
         if resolved and (asin := asin_from_url(resolved)):
-            yield asin, resolved
+            yield url, asin, resolved
 
 
-async def message_asins(text: str) -> set[str]:
-    """ASINs of the Amazon products a channel message links to."""
-    return {asin async for asin, _ in _linked_products(text)}
+async def message_asin_by_url(text: str) -> dict[str, str]:
+    """ASIN of each URL in a channel message that links to an Amazon product, keyed by the URL as written."""
+    return {url: asin async for url, asin, _ in _linked_products(text)}
 
 
 async def first_product_link(text: str) -> tuple[str, str] | None:
     """(asin, amazon_url) of the first Amazon product linked in a user's /watch answer."""
-    async for link in _linked_products(text):
-        return link
+    async for _, asin, resolved in _linked_products(text):
+        return asin, resolved
     return None

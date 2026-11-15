@@ -173,8 +173,8 @@ async def test_links_resolved_once_per_message_for_several_asin_products(db_sess
         session.refresh(second)
         session.expunge(second)
     parsed = []
-    real = match_recorder.message_asins
-    monkeypatch.setattr(match_recorder, "message_asins", lambda text: parsed.append(text) or real(text))
+    real = match_recorder.message_asin_by_url
+    monkeypatch.setattr(match_recorder, "message_asin_by_url", lambda text: parsed.append(text) or real(text))
     text = _text(f"Offerta {SHORT}")
 
     assert await recorder.record(first, text, "Deals", LINK, "realtime") is True

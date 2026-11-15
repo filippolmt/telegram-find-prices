@@ -106,6 +106,7 @@ def test_distance_from_historical_low_is_not_a_price():
     "line",
     [
         "Prodotti inclusi di 50€ di coupon",
+        "32€ di ribasso per il OneBlade Pro",
         "Subito 10€ di sconto",
         "🛒 Sconto 5,77€ visibile in APP",
         "Sconto: 5€",
@@ -122,6 +123,15 @@ def test_distance_from_historical_low_is_not_a_price():
         "✅ Applica il coupon da 2,92€ al check out per ottenere questo prezzo!",
         'Clicca su "Applica coupon 10€" subito sotto al prezzo!',
         "🎁 Ottieni un omaggio con una spesa minima di 35€",
+        "🎟️ Coupon da: 0,93€",
+        "🎁 Richiedi 7,50€ di rimborso",
+        "🛒 Ricevi anche 4,56€ di cashback",
+        "🔴Al supermercato il singolo flacone costa 4,37€. QUI SU AMAZON SOLO 3,12€😱",
+        "Pril a 0,07€ per lavaggio dopo cashback!",
+        "Natural Trainer a 0,47€ per bustina",
+        "Pril a 0,07€/lavaggio",
+        "Rimborso di 50€",
+        "💳 Cashback 10€",
     ],
 )
 def test_amount_off_is_not_a_price(line):
@@ -138,8 +148,14 @@ def test_amount_off_is_not_a_price(line):
         ("Codice sconto 39€", [39.0]),
         ("Coupon: 39,99€", [39.99]),
         ("Coupon 39,99€ invece di 49€", [39.99, 49.0]),
+        ("🏷 6,90€ l'uno invece di 16,00€ - sconto 57%", [6.90, 16.0]),
     ],
 )
 def test_price_paid_with_coupon_or_discount_is_a_price(line, prices):
     """Mid-line, or "Coupon" without "di"/"da", the amount is the price paid."""
     assert extract_prices(line) == prices
+
+
+def test_supermarket_comparison_wrapped_on_two_lines_is_not_a_price():
+    text = "🔴Al supermercato il singolo costa 4,37€.\nQUI SU AMAZON SOLO 3,12€\n💰 PASSA DA 9€ A 6€"
+    assert extract_prices(text) == [9.0, 6.0]
