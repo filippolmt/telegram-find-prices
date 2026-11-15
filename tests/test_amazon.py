@@ -91,12 +91,12 @@ async def test_redirect_loop_gives_up(http):
     assert len(requested) == amazon.MAX_HOPS
 
 
-async def test_message_asins_reads_every_url(http):
+async def test_message_asin_by_url_reads_every_url(http):
     redirects, _ = http
     redirects["https://amzn.to/3abc"] = "https://www.amazon.it/dp/B0SHORT001"
     text = f"Offerta! {SLUG_URL}\nhttps://amzn.to/3abc). https://bit.ly/x"
 
-    assert await amazon.message_asins(text) == {SLUG_URL: "B0CXYZ1234", "https://amzn.to/3abc": "B0SHORT001"}
+    assert await amazon.message_asin_by_url(text) == {SLUG_URL: "B0CXYZ1234", "https://amzn.to/3abc": "B0SHORT001"}
 
 
 @pytest.mark.parametrize(

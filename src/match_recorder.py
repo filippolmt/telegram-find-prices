@@ -7,7 +7,7 @@ Shared by the realtime listener and the backfill scan.
 import asyncio
 import logging
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from types import MappingProxyType
 from typing import NamedTuple
 
@@ -18,9 +18,9 @@ from telethon.helpers import add_surrogate, del_surrogate
 from telethon.tl.custom.message import Message
 from telethon.tl.types import InlineButtonTypeUrl, MessageEntityTextUrl
 
-from amazon import message_asins
+from amazon import message_asin_by_url, urls_in_text
 from models import MatchSource, PriceHistory, Product, User
-from price_parser import extract_prices
+from price_parser import extract_prices, is_price_only
 from translations import DEFAULT_LANGUAGE, t
 
 log = logging.getLogger(__name__)
@@ -78,53 +78,70 @@ def has_keywords(name: str) -> bool:
 
 
 # A blank line, also one made only of the invisible characters channels use as spacers.
-_PARAGRAPH_BREAK = re.compile(r"\n[\s\u200b-\u200d\u2060\ufeff\u3164]*\n")
+_PARAGRAPH_BREAK = re.compile(r"\n[\s\u115f\u1160\u200b-\u200d\u2060\u2800\u3164\ufeff\uffa0]*\n")
 
 
-def _names(marks: list[str], text: str) -> bool:
-    """Whether text holds one of the product's marks: its normalized name, or its normalized links."""
-    text = _normalize(text)
-    return any(mark in text for mark in marks)
+def _without_urls(text: str) -> str:
+    for url in urls_in_text(text):
+        text = text.replace(url, " ")
+    return text
 
 
-def _paragraph_prices(marks: list[str], paragraph: str) -> list[float]:
-    """Prices of a paragraph; in a list of one product per line, those on the lines naming the product."""
-    priced_lines = [(_names(marks, line), prices) for line in paragraph.split("\n") if (prices := extract_prices(line))]
-    # shortcut: a list needs 3+ priced lines, so "name 75€ / offer at 60€" keeps both; a 2-item list still mixes prices
-    own = [price for named, prices in priced_lines if named for price in prices] if len(priced_lines) >= 3 else []
-    return own or [price for _, prices in priced_lines for price in prices]
+def _flat(groups) -> list[float]:
+    return [price for group in groups for price in group]
 
 
-def _product_prices(marks: list[str], text: str, priced_below: bool) -> list[float]:
+def _paragraph_prices(mentions: Callable[[str], bool], paragraph: str) -> list[float]:
+    """Prices of a paragraph; in a list of one product per line, those on the lines naming the product.
+
+    A list has two or more lines each naming a product with its price ("TCL 79€ / BOSE 161€"); lines that
+    only quote a price ("📉 In offerta a 39€") belong to the product named above them.
+    """
+    priced = [(line, prices) for line in paragraph.split("\n") if (prices := extract_prices(line))]
+    items = [(line, prices) for line, prices in priced if not is_price_only(line)]
+    own = _flat(prices for line, prices in items if mentions(line)) if len(items) >= 2 else []
+    return own or _flat(prices for _, prices in priced)
+
+
+def _product_prices(mentions: Callable[[str], bool], text: str, priced_below: bool) -> list[float]:
     """Prices of the paragraphs naming the product, since a post can list several products each with its own price.
 
     When they have none and priced_below (a name: a banner, then the name, then the price), the paragraphs from
     the first one naming it on. Else the whole message: a link in its own paragraph or in a URL button, or
     variants listed under the price.
-    shortcut: a product named without a price below other products' paragraphs gets their prices (#77); it reads
-    the same as a variant listed under its product's price, which real channels post.
+    shortcut: a product named without a price below other products' paragraphs gets their prices (#77), as it
+    reads the same as a variant listed under its product's price; revisit if channels start posting it.
     """
-    paragraphs = [(_names(marks, paragraph), _paragraph_prices(marks, paragraph)) for paragraph in _PARAGRAPH_BREAK.split(text)]
+    paragraphs = [(mentions(paragraph), _paragraph_prices(mentions, paragraph)) for paragraph in _PARAGRAPH_BREAK.split(text)]
     first = next((i for i, (named, _) in enumerate(paragraphs) if named), len(paragraphs))
     return (
-        [price for named, prices in paragraphs if named for price in prices]
-        or [price for _, prices in paragraphs[first:] if priced_below for price in prices]
-        or [price for _, prices in paragraphs for price in prices]
+        _flat(prices for named, prices in paragraphs if named)
+        or (_flat(prices for _, prices in paragraphs[first:]) if priced_below else [])
+        or _flat(prices for _, prices in paragraphs)
     )
 
 
-def check_product_match(product: Product, message_text: str, asins: Mapping[str, str] = MappingProxyType({})) -> dict | None:
+def check_product_match(product: Product, message_text: str, asin_by_url: Mapping[str, str] = MappingProxyType({})) -> dict | None:
     """Check if a message matches a product: its keywords, or a link to its ASIN, plus the target price.
 
-    asins maps the message's Amazon URLs to their ASINs. Returns a dict with notification info, or None if no match.
+    asin_by_url maps the message's Amazon URLs to their ASINs. Returns a dict with notification info, or None if no match.
     """
-    by_name = has_keywords(product.name) and _names([_normalize(product.name)], message_text)
-    links = [_normalize(url) for url, asin in asins.items() if product.asin is not None and asin == product.asin]
+    name = _normalize(product.name) if has_keywords(product.name) else None
+    links = {url for url, asin in asin_by_url.items() if product.asin is not None and asin == product.asin}
+
+    def names(part: str) -> bool:
+        # message_text puts hidden links at line ends: also look past one splitting a name that wraps
+        return name in _normalize(part) or name in _normalize(_without_urls(part))
+
+    def links_to(part: str) -> bool:
+        return not links.isdisjoint(urls_in_text(part))
+
+    by_name = name is not None and names(message_text)
     if not by_name and not links:
         return None
 
     if product.target_price is not None:
-        prices = _product_prices([_normalize(product.name)] if by_name else links, message_text, priced_below=by_name)
+        prices = _product_prices(names if by_name else links_to, message_text, priced_below=by_name)
         if not prices or min(prices) > product.target_price:
             return None
         return {
@@ -155,13 +172,13 @@ class MatchRecorder:
     def __init__(self, bot_client: TelegramClient | None, db_session_factory: sessionmaker):
         self.bot_client = bot_client
         self._session_factory = db_session_factory
-        self._last_asins: tuple[str | None, dict[str, str]] = (None, {})
+        self._last_asin_by_url: tuple[str | None, dict[str, str]] = (None, {})
 
-    async def _message_asins(self, text: str) -> dict[str, str]:
+    async def _message_asin_by_url(self, text: str) -> dict[str, str]:
         # The caller records one message against every product in a row: parse its links once.
-        if self._last_asins[0] != text:
-            self._last_asins = (text, await message_asins(text))
-        return self._last_asins[1]
+        if self._last_asin_by_url[0] != text:
+            self._last_asin_by_url = (text, await message_asin_by_url(text))
+        return self._last_asin_by_url[1]
 
     def _is_active(self, user_id: int) -> bool:
         with self._session_factory() as session:
@@ -173,7 +190,7 @@ class MatchRecorder:
         result = check_product_match(product, text.match)
         if result is None and product.asin and self._is_active(product.user_id):
             # Links are resolved only for an active owner of an ASIN product: otherwise no HTTP request at all
-            result = check_product_match(product, text.match, await self._message_asins(text.match))
+            result = check_product_match(product, text.match, await self._message_asin_by_url(text.match))
         if result is None:
             return False
 

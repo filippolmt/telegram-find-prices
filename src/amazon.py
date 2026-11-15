@@ -139,7 +139,7 @@ async def _linked_products(text: str):
             yield url, asin, resolved
 
 
-async def message_asins(text: str) -> dict[str, str]:
+async def message_asin_by_url(text: str) -> dict[str, str]:
     """ASIN of each URL in a channel message that links to an Amazon product, keyed by the URL as written."""
     return {url: asin async for url, asin, _ in _linked_products(text)}
 

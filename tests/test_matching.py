@@ -220,7 +220,7 @@ def test_product_per_line_list_uses_the_price_on_the_products_line(db_session):
     assert check_product_match(product, post)["price_found"] == 69.0
 
 
-def test_name_line_price_with_the_offer_below_keeps_the_offer(db_session):
+def test_name_line_face_value_with_the_price_below_keeps_both(db_session):
     """pallok/82717: the name line carries the card's face value, the next line the price."""
     product = _create_user_with_product(db_session, "playstation network card", target_price=70.0)
     post = "75€ di credito a 61€ da Eneba\n\n🎮 PlayStation Network Card 75€\n📉 In offerta a 60,96€"
@@ -228,10 +228,11 @@ def test_name_line_price_with_the_offer_below_keeps_the_offer(db_session):
 
 
 def test_blank_line_of_invisible_characters_separates_paragraphs(db_session):
-    """Issue #76: a "blank" line made of a Hangul filler or zero-width characters."""
+    """Issue #76: a "blank" line made of Hangul fillers, zero-width characters or a Braille blank."""
     product = _create_user_with_product(db_session, "bose cuffie", target_price=200.0)
-    post = "TCL soundbar\nA 79,47€\n\u3164\nBOSE cuffie\nA 161,46€\n\u200b\u200d\nFooter"
-    assert check_product_match(product, post)["price_found"] == 161.46
+    for spacer in ["\u3164", "\u200b\u200d", "\u2800", "\uffa0", "\u115f"]:
+        post = f"TCL soundbar\nA 79,47€\n{spacer}\nBOSE cuffie\nA 161,46€\n{spacer}\nFooter"
+        assert check_product_match(product, post)["price_found"] == 161.46, ascii(spacer)
 
 
 def test_link_only_match_in_multi_product_post_uses_the_linked_paragraph(db_session):
@@ -259,3 +260,31 @@ def test_link_in_its_own_paragraph_takes_the_post_price(db_session):
         "👉 Qui altre offerte (PayPal da 45€ terminato)"
     )
     assert check_product_match(product, post, {"https://tidd.ly/4e8ST4h": "B0SEDIA001"})["price_found"] == 34.02
+
+
+def test_two_product_list_without_blank_line_uses_the_products_line(db_session):
+    """Issue #76: two lines, each a product with its price."""
+    product = _create_user_with_product(db_session, "bose qc", target_price=200.0)
+    assert check_product_match(product, "Bose QC 161€\nTCL soundbar 79€")["price_found"] == 161.0
+
+
+def test_price_lines_under_a_priced_name_line_count(db_session):
+    """One product: its name line with a price, then lines that only quote prices."""
+    product = _create_user_with_product(db_session, "bose qc cuffie", target_price=170.0)
+    post = "Bose QC cuffie a 199€\n🔥 Ora a 161,46€\n📉 Minimo storico 150€"
+    assert check_product_match(product, post)["price_found"] == 150.0
+
+
+def test_name_split_by_a_hidden_link_at_a_line_end_still_matches(db_session):
+    """message_text puts a hidden link at the end of its line, inside a name that wraps."""
+    product = _create_user_with_product(db_session, "bose quiet comfort", target_price=200.0)
+    assert check_product_match(product, "Bose Quiet https://amzn.to/X\nComfort cuffie 161€")["price_found"] == 161.0
+
+
+def test_link_is_matched_whole_and_case_sensitive(db_session):
+    """Short links differ by one character or by case: another product's link is not this one's."""
+    product = _create_user_with_product(db_session, "", target_price=200.0)
+    product.asin = "B0BOSE0001"
+    post = "TCL 79€\nhttps://amzn.to/abcd\n\nTCL bis 89€\nhttps://amzn.to/ABC\n\nBOSE 161€\nhttps://amzn.to/abc"
+    asin_by_url = {"https://amzn.to/abc": "B0BOSE0001", "https://amzn.to/abcd": "B0TCL00001", "https://amzn.to/ABC": "B0TCL00002"}
+    assert check_product_match(product, post, asin_by_url)["price_found"] == 161.0

@@ -129,6 +129,9 @@ def test_distance_from_historical_low_is_not_a_price():
         "🔴Al supermercato il singolo flacone costa 4,37€. QUI SU AMAZON SOLO 3,12€😱",
         "Pril a 0,07€ per lavaggio dopo cashback!",
         "Natural Trainer a 0,47€ per bustina",
+        "Pril a 0,07€/lavaggio",
+        "Rimborso di 50€",
+        "💳 Cashback 10€",
     ],
 )
 def test_amount_off_is_not_a_price(line):
@@ -151,3 +154,8 @@ def test_amount_off_is_not_a_price(line):
 def test_price_paid_with_coupon_or_discount_is_a_price(line, prices):
     """Mid-line, or "Coupon" without "di"/"da", the amount is the price paid."""
     assert extract_prices(line) == prices
+
+
+def test_supermarket_comparison_wrapped_on_two_lines_is_not_a_price():
+    text = "🔴Al supermercato il singolo costa 4,37€.\nQUI SU AMAZON SOLO 3,12€\n💰 PASSA DA 9€ A 6€"
+    assert extract_prices(text) == [9.0, 6.0]

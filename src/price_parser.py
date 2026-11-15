@@ -23,20 +23,21 @@ _PRICE_PATTERN = re.compile(
 _DISCOUNT_PREFIX = re.compile(
     r"""
     (?:
-        ^\W*(?:sconto|risparmi[oa]?)[\s:\-]+(?:d[ia]\s+)?   # "🛒 Sconto 5,77€", "Risparmi 18,23€"
+        ^\W*(?:sconto|risparmi[oa]?|rimborso|cashback)[\s:\-]+(?:d[ia]\s+)?  # "🛒 Sconto 5,77€", "Rimborso di 50€"
         | ^\W*coupon\s+d[ia][\s:]+                         # "Coupon da 5€", "Coupon da: 5€" ("Coupon: 39€" is the price)
         | \bapplica\s+(?:il\s+)?coupon[\s:]+(?:d[ia]\s+)?  # "Applica il coupon da 2,92€"
         | \bspesa\s+minima\s+di\s+                         # "spesa minima di 35€"
         | \(\s*sconto[\s:\-]+(?:di\s+)?                     # "(sconto 10€)"
         | ^\W*al\s+supermercato\b.*                         # "Al supermercato costa 4,37€. QUI SOLO 3,12€" (unit prices)
+        | ^\W*qui\s+su\s+amazon\b.*                         # the same comparison wrapped onto a second line
     )$
     """,
     re.IGNORECASE | re.VERBOSE,
 )
 # Text right after an amount that makes it an amount off, money back or a per-use price:
-# "1€ dal minimo", "10€ di sconto", "50€ di rimborso", "200 euro in meno", "0,07€ per lavaggio".
+# "1€ dal minimo", "10€ di sconto", "50€ di rimborso", "200 euro in meno", "0,07€ per lavaggio", "0,07€/lavaggio".
 _DISCOUNT_SUFFIX = re.compile(
-    r"\s*(?:dal\s+(?:prezzo\s+)?minimo|di\s+(?:sconto|coupon|ribasso|rimborso|cashback)|in\s+meno|per\s+(?:lavaggio|bustina))\b",
+    r"\s*(?:dal\s+(?:prezzo\s+)?minimo|di\s+(?:sconto|coupon|ribasso|rimborso|cashback)|in\s+meno|(?:per\s+|/\s*)(?:lavaggio|bustina))\b",
     re.IGNORECASE,
 )
 
@@ -44,6 +45,20 @@ _DISCOUNT_SUFFIX = re.compile(
 def _is_discount(text: str, match: re.Match) -> bool:
     line_before = text[text.rfind("\n", 0, match.start()) + 1 : match.start()]
     return bool(_DISCOUNT_PREFIX.search(line_before) or _DISCOUNT_SUFFIX.match(text, match.end()))
+
+
+# Words of a line that only quotes a price ("📉 In offerta a 39€", "💶 Prezzo precedente 49€"), not a product.
+_PRICE_ONLY_WORDS = frozenset(
+    "a al da di il in con e ora solo scende passa invece offerta minimo storico prezzo precedente attuale finale"
+    " scontato applicando coupon codice media giorni".split()
+)
+
+
+def is_price_only(line: str) -> bool:
+    """Whether the text before a line's first price only quotes it, naming no product."""
+    match = _PRICE_PATTERN.search(line)
+    words = re.findall(r"[^\W\d_]+", line[: match.start()] if match else line)
+    return all(word.lower() in _PRICE_ONLY_WORDS for word in words)
 
 
 def _to_float(raw: str) -> float:
