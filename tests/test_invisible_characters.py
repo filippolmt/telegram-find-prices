@@ -13,7 +13,7 @@ SOURCES = sorted([*ROOT.glob("src/**/*.py"), *ROOT.glob("tests/**/*.py")])
 
 
 @pytest.mark.parametrize("path", SOURCES, ids=lambda path: str(path.relative_to(ROOT)))
-def test_source_has_no_literal_invisible_characters(path):
+def test_sources_have_no_invisible_characters(path):
     found = [
         f"line {number}: U+{ord(char):04X}"
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1)

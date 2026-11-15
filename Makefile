@@ -53,10 +53,10 @@ dump-posts:
 	docker compose stop bot
 	docker compose run --rm -T test python src/replay.py dump $(ARGS); status=$$?; docker compose up -d bot; exit $$status
 
-# Prices that change between a git ref and the working tree, over data/posts.json (native: needs git and uv).
-# e.g.: make replay ARGS='--base main --samples 20'
+# Prices that change between a git ref (default main) and the working tree, over data/posts.json (native: needs git and uv).
+# e.g.: make replay BASE=v1.0.0 ARGS='--samples 20'
 replay:
-	uv run python src/replay.py diff $(ARGS)
+	uv run python src/replay.py diff --base $(or $(BASE),main) $(ARGS)
 
 # Shell inside the container
 shell:
