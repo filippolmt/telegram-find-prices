@@ -17,6 +17,11 @@ _PRICE_PATTERN = re.compile(
 )
 
 
+# An amount preceded or followed by these is a discount, not a price: "Sconto 5€", "1€ dal minimo".
+_DISCOUNT_BEFORE = re.compile(r"\b(?:sconto|coupon)\s+(?:di\s+)?$", re.IGNORECASE)
+_DISCOUNT_AFTER = re.compile(r"\s*(?:dal\s+minimo|di\s+(?:sconto|coupon))\b", re.IGNORECASE)
+
+
 def _to_float(raw: str) -> float:
     """Convert '1.234,56' -> 1234.56"""
     return float(raw.replace(".", "").replace(",", "."))
@@ -27,7 +32,8 @@ def extract_prices(text: str) -> list[float]:
     prices = []
     for match in _PRICE_PATTERN.finditer(text):
         raw = match.group(1) or match.group(2)
-        if raw:
+        before = text[max(0, match.start() - 20) : match.start()]
+        if raw and not _DISCOUNT_BEFORE.search(before) and not _DISCOUNT_AFTER.match(text, match.end()):
             prices.append(_to_float(raw))
     return prices
 

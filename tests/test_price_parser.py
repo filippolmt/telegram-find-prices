@@ -95,3 +95,21 @@ def test_single_digit_price():
 )
 def test_parse_target_price(text, expected):
     assert parse_target_price(text) == expected
+
+
+def test_distance_from_historical_low_is_not_a_price():
+    """Issue #56: '1€ dal minimo' is how far the price is from the low, not the price."""
+    assert extract_prices("Ninja Blast a 1€ dal minimo\n📉 In offerta a 39,99€") == [39.99]
+
+
+@pytest.mark.parametrize("line", ["Prodotti inclusi di 50€ di coupon", "Subito 10€ di sconto"])
+def test_amount_of_discount_or_coupon_is_not_a_price(line):
+    assert extract_prices(f"{line}\nDaya Lavastoviglie a 169,00€") == [169.0]
+
+
+def test_discount_named_before_the_amount_is_not_a_price():
+    assert extract_prices("📉 A 32,72€ invece di 38,49€\n🛒 Sconto 5,77€ visibile in APP") == [32.72, 38.49]
+
+
+def test_discounted_price_is_still_a_price():
+    assert extract_prices("Prezzo scontato 39€") == [39.0]
