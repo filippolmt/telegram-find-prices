@@ -2,6 +2,7 @@
 Telegram user client commands (join/leave channels, backfill).
 """
 
+import asyncio
 import logging
 
 from sqlalchemy.orm import sessionmaker
@@ -95,6 +96,9 @@ class ClientCommands:
             )
             if link_exists is None:
                 session.add(UserChannel(user_id=user_id, channel_id=channel_db.id))
+            else:
+                # Added by hand now: leaving the Channel folder must no longer unlink it
+                link_exists.from_folder = False
 
             session.commit()
 
@@ -133,7 +137,9 @@ class ClientCommands:
                         matches_found += 1
 
         except FloodWaitError as e:
-            log.warning("FloodWait during backfill: waiting %ds", e.seconds)
+            # Partial backfill; waiting keeps the next sequential backfill (Channel folder) from hitting it again
+            log.warning("FloodWait during backfill of '%s': waiting %ds", channel_identifier, e.seconds)
+            await asyncio.sleep(e.seconds)
         except RPCError as e:
             log.error("Backfill error for channel '%s': %s", channel_identifier, e)
 

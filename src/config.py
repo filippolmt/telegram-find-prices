@@ -49,3 +49,5 @@ class Config:
     ALLOW_ALL_USERS = os.getenv("ALLOW_ALL_USERS", "").strip().lower() == "true"
     TIMEZONE = os.getenv("TIMEZONE", "UTC")
     DAILY_SUMMARY_HOUR = int(os.getenv("DAILY_SUMMARY_HOUR", "21"))
+    # Name of the user client account's folder whose channels are monitored for that account; empty: off
+    CHANNEL_FOLDER = os.getenv("CHANNEL_FOLDER", "").strip()

@@ -21,6 +21,7 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 from bot_commands import BotCommands
+from channel_folder import ChannelFolder
 from channel_listener import ChannelListener
 from client_commands import ClientCommands
 from config import Config
@@ -104,6 +105,11 @@ async def main():
         tz_name=cf.TIMEZONE,
     )
     scheduler.start()
+
+    if cf.CHANNEL_FOLDER:
+        channel_folder = ChannelFolder(client, client_commands, SessionLocal, cf.CHANNEL_FOLDER)
+        channel_folder.register()
+        await channel_folder.sync()
 
     await bot_client.run_until_disconnected()
     await client.disconnect()

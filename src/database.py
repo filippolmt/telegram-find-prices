@@ -71,6 +71,13 @@ def run_migrations():
                 conn.execute(text("ALTER TABLE channels ADD COLUMN title VARCHAR"))
                 log.info("Migration: added column channels.title")
 
+        # user_channels.from_folder
+        if "user_channels" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("user_channels")]
+            if "from_folder" not in cols:
+                conn.execute(text("ALTER TABLE user_channels ADD COLUMN from_folder BOOLEAN NOT NULL DEFAULT 0"))
+                log.info("Migration: added column user_channels.from_folder")
+
         # Rows with dangling references, left before foreign keys were enforced.
         # One pass suffices: every foreign key cascades, so deleting a row cannot orphan another.
         # A future foreign key without CASCADE would make these deletes fail at startup instead.

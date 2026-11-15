@@ -58,6 +58,8 @@ ALLOWED_USERS=12345678
 
 Use a separate bot (its own `BOT_TOKEN`) for local development, so a local instance never runs alongside the production one on the same bot.
 
+`CHANNEL_FOLDER` (optional) names a Telegram folder of the user client's account: its channels are monitored for that account as if each had been added with `/add_channel`, and a channel removed from the folder stops being monitored (the account never leaves it). Channels added by hand are never removed this way. Only the channels listed in the folder count, not its rules (e.g. "all channels"). The account must have sent `/start` to the bot. The sync runs at startup and whenever the folder changes.
+
 All available variables and their defaults are in [`src/config.py`](src/config.py).
 
 ### 3. First-time authentication
@@ -146,7 +148,7 @@ You should see:
 
 ## How it works
 
-1. Add channels to monitor with `/add_channel` (supports public usernames and invite links)
+1. Add channels to monitor with `/add_channel` (supports public usernames and invite links), or put them in the folder named by `CHANNEL_FOLDER`
 2. Add products with `/watch` (optionally with a target price and category)
 3. When a message in a monitored channel mentions a product, you receive a notification via bot
 4. If you set a target price, you only get notified when the price found is at or below the target
@@ -167,6 +169,7 @@ src/
   bot_commands.py             # Bot command handlers
   client_commands.py          # Telegram client operations
   channel_listener.py         # Channel message listener
+  channel_folder.py           # Channel folder (CHANNEL_FOLDER): links its channels
   price_parser.py             # European price format parser
   scheduler.py                # Daily summary scheduler
   translations.py             # i18n: message translations (en/it)
