@@ -42,6 +42,9 @@ MESSAGES = {
         "watch_already_monitoring": "You are already monitoring '{product}'.",
         "watch_suggest_price": "From history, the lowest price found for '{product}' is {price:.2f}.\nDo you want to use {price:.2f} as target price?\nReply 'yes' to accept, or enter a different price.",
         "watch_active": "Monitoring active: '{product}'{price_info}{cat_info}",
+        "watch_price_info": " at {price}",
+        "any_price": "any price",
+        "no_price": "N/A",
 
         # /list_products
         "no_products": "You are not monitoring any products. Use /watch to start.",
@@ -49,11 +52,11 @@ MESSAGES = {
         "your_products": "Your monitored products:\n{products}",
 
         # /unwatch
-        "unwatch_prompt": "Which product do you want to remove? Enter the number:\n{products}\n\n/cancel to abort",
+        "unwatch_prompt": "Which product do you want to remove? Enter the number:\n{items}\n\n/cancel to abort",
         "unwatched": "Removed: '{product}'",
 
         # /history
-        "history_prompt": "Which product do you want to see history for?\n{products}\n\n/cancel to abort",
+        "history_prompt": "Which product do you want to see history for?\n{items}\n\n/cancel to abort",
         "history_empty": "No matches found for '{product}'.",
         "history_header": "History for '{product}' (last {count} matches):",
 
@@ -88,7 +91,7 @@ MESSAGES = {
         "leave_channel_failed": "Error leaving channel. Please try again later.",
 
         # /remove_channel
-        "remove_channel_prompt": "Which channel do you want to remove? Enter the number:\n{channels}\n\n/cancel to abort",
+        "remove_channel_prompt": "Which channel do you want to remove? Enter the number:\n{items}\n\n/cancel to abort",
         "remove_channel_removed": "Channel removed: {channel}",
 
         # Daily summary
@@ -133,6 +136,9 @@ MESSAGES = {
         "watch_already_monitoring": "Stai gi\u00e0 monitorando '{product}'.",
         "watch_suggest_price": "Dallo storico, il prezzo pi\u00f9 basso trovato per '{product}' \u00e8 {price:.2f}.\nVuoi usare {price:.2f} come prezzo obiettivo?\nRispondi 's\u00ec' per accettare, o inserisci un prezzo diverso.",
         "watch_active": "Monitoraggio attivo: '{product}'{price_info}{cat_info}",
+        "watch_price_info": " a {price}",
+        "any_price": "qualsiasi prezzo",
+        "no_price": "N/D",
 
         # /list_products
         "no_products": "Non stai monitorando nessun prodotto. Usa /watch per iniziare.",
@@ -140,11 +146,11 @@ MESSAGES = {
         "your_products": "I tuoi prodotti monitorati:\n{products}",
 
         # /unwatch
-        "unwatch_prompt": "Quale prodotto vuoi rimuovere? Inserisci il numero:\n{products}\n\n/annulla per annullare",
+        "unwatch_prompt": "Quale prodotto vuoi rimuovere? Inserisci il numero:\n{items}\n\n/annulla per annullare",
         "unwatched": "Rimosso: '{product}'",
 
         # /history
-        "history_prompt": "Di quale prodotto vuoi vedere lo storico?\n{products}\n\n/annulla per annullare",
+        "history_prompt": "Di quale prodotto vuoi vedere lo storico?\n{items}\n\n/annulla per annullare",
         "history_empty": "Nessuna corrispondenza trovata per '{product}'.",
         "history_header": "Storico per '{product}' (ultime {count} corrispondenze):",
 
@@ -179,7 +185,7 @@ MESSAGES = {
         "leave_channel_failed": "Errore nell'abbandonare il canale. Riprova pi\u00f9 tardi.",
 
         # /remove_channel
-        "remove_channel_prompt": "Quale canale vuoi rimuovere? Inserisci il numero:\n{channels}\n\n/annulla per annullare",
+        "remove_channel_prompt": "Quale canale vuoi rimuovere? Inserisci il numero:\n{items}\n\n/annulla per annullare",
         "remove_channel_removed": "Canale rimosso: {channel}",
 
         # Daily summary

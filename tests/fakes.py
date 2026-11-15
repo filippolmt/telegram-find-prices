@@ -2,6 +2,7 @@
 In-memory stand-ins for Telethon events and the bot client, shared by bot command tests.
 """
 
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -15,8 +16,8 @@ def make_bot(monkeypatch, db_session_factory, allowed, allow_all):
     return BotCommands(MagicMock(), MagicMock(), db_session_factory)
 
 
-def sender_event(user_id, username="stranger"):
-    sender = SimpleNamespace(username=username, lang_code="en")
+def sender_event(user_id, username="stranger", lang="en"):
+    sender = SimpleNamespace(username=username, lang_code=lang)
 
     async def get_sender():
         return sender
@@ -24,14 +25,37 @@ def sender_event(user_id, username="stranger"):
     return SimpleNamespace(sender_id=user_id, get_sender=get_sender)
 
 
-def chat_event(user_id, username="stranger"):
-    event = sender_event(user_id, username)
+def chat_event(user_id, username="stranger", lang="en"):
+    event = sender_event(user_id, username, lang)
     event.replies = []
 
     async def respond(text):
         event.replies.append(text)
 
     event.respond = respond
+    return event
+
+
+def conversation_event(answers, user_id=1, username="owner", lang="en"):
+    """A chat event whose conversation replies with `answers` in order; an exception instance is raised instead."""
+    event = chat_event(user_id, username, lang)
+    event.chat_id = user_id
+    answers = iter(answers)
+
+    async def wait_event(_builder):
+        answer = next(answers)
+        if isinstance(answer, BaseException):
+            raise answer
+        return SimpleNamespace(raw_text=answer)
+
+    event.conversations = 0
+
+    @asynccontextmanager
+    async def conversation(_chat_id, timeout):
+        event.conversations += 1
+        yield SimpleNamespace(wait_event=wait_event)
+
+    event.client = SimpleNamespace(conversation=conversation)
     return event
 
 
