@@ -97,10 +97,12 @@ def _paragraph_prices(mentions: Callable[[str], bool], paragraph: str) -> list[f
     A list has two or more lines each naming a product with its price ("TCL 79€ / BOSE 161€"); lines that
     only quote a price ("📉 In offerta a 39€") belong to the product named above them.
     """
-    priced = [(line, prices) for line in paragraph.split("\n") if (prices := extract_prices(line))]
-    items = [(line, prices) for line, prices in priced if not is_price_only(line)]
+    # Prices are read without URLs: a slug or an encoded share text ("euro%20") is no price (#57)
+    lines = [(line, _without_urls(line)) for line in paragraph.split("\n")]
+    priced = [(line, text, prices) for line, text in lines if (prices := extract_prices(text))]
+    items = [(line, prices) for line, text, prices in priced if not is_price_only(text)]
     own = _flat(prices for line, prices in items if mentions(line)) if len(items) >= 2 else []
-    return own or _flat(prices for _, prices in priced)
+    return own or _flat(prices for _, _, prices in priced)
 
 
 def _product_prices(mentions: Callable[[str], bool], text: str, priced_below: bool) -> list[float]:
