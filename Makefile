@@ -1,4 +1,4 @@
-.PHONY: build run run-d auth gen-session test test-v test-one lint hooks live-check shell logs stop clean
+.PHONY: build run run-d auth gen-session test test-v test-one lint hooks live-check dump-posts replay shell logs stop clean
 
 # Build Docker image (only when dependencies change)
 build:
@@ -46,6 +46,17 @@ hooks:
 live-check:
 	docker compose stop bot
 	docker compose run --rm -T test python src/live_check.py $(ARGS); status=$$?; docker compose up -d bot; exit $$status
+
+# Save recent posts of the followed channels to data/posts.json for make replay (bot paused, like live-check).
+# e.g.: make dump-posts ARGS='--limit 300 --channel pallok'
+dump-posts:
+	docker compose stop bot
+	docker compose run --rm -T test python src/replay.py dump $(ARGS); status=$$?; docker compose up -d bot; exit $$status
+
+# Prices that change between a git ref and the working tree, over data/posts.json (native: needs git and uv).
+# e.g.: make replay ARGS='--base main --samples 20'
+replay:
+	uv run python src/replay.py diff $(ARGS)
 
 # Shell inside the container
 shell:
