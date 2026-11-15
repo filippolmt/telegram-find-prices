@@ -27,12 +27,14 @@ from database import Base, SessionLocal, engine, run_migrations
 from scheduler import DailySummaryScheduler
 
 
-def create_client(session_name: str, api_id: int, api_hash: str, session_string: str = "") -> TelegramClient:
-    """Create a new Telegram client. Uses StringSession if session_string is provided."""
+def create_client(session_name: str, api_id: int, api_hash: str, session_string: str = "", lang_code: str = "en") -> TelegramClient:
+    """Create a new Telegram client. Uses StringSession if session_string is provided.
+
+    lang_code is the language the client presents to Telegram, which bots see as the sender's.
+    """
     session_string = session_string.strip()
-    if session_string:
-        return TelegramClient(StringSession(session_string), api_id, api_hash)
-    return TelegramClient(session_name, api_id, api_hash)
+    session = StringSession(session_string) if session_string else session_name
+    return TelegramClient(session, api_id, api_hash, lang_code=lang_code, system_lang_code=lang_code)
 
 
 async def user_client_ready(client: TelegramClient) -> bool:
