@@ -10,8 +10,6 @@ from telethon.errors import (
     AccessTokenExpiredError,
     AccessTokenInvalidError,
     ApiIdInvalidError,
-    FloodWaitError,
-    PhoneNumberInvalidError,
 )
 from telethon.sessions import StringSession
 
@@ -35,6 +33,17 @@ def create_client(session_name: str, api_id: int, api_hash: str, session_string:
     if session_string:
         return TelegramClient(StringSession(session_string), api_id, api_hash)
     return TelegramClient(session_name, api_id, api_hash)
+
+
+async def user_client_ready(client: TelegramClient) -> bool:
+    """Connect the user client with its saved session. It never asks for a login code: a container has no
+    terminal to type it in, and each restart would send a new code to the phone."""
+    await client.connect()
+    if await client.is_user_authorized():
+        return True
+    log.error("User session not authorized: set CLIENT_SESSION_STRING (src/generate_string_session.py, "
+              "see README) or run make auth")
+    return False
 
 
 async def main():
@@ -75,29 +84,11 @@ async def main():
         log.error("API_ID or API_HASH is invalid. Check your credentials at my.telegram.org and update .env")
         return
 
-    try:
-        if await client.start(phone=cf.PHONE_NUMBER):
-            log.info("Client started!")
-            listener = ChannelListener(client, bot_client, SessionLocal)
-            listener.register()
-            log.info("Channel listener active!")
-        else:
-            log.error("Failed to start the client.")
-            return
-    except PhoneNumberInvalidError:
-        log.error("PHONE_NUMBER is invalid. Check your .env configuration.")
+    if not await user_client_ready(client):
         return
-    except FloodWaitError as e:
-        log.warning("Telegram requires a wait of %d seconds. Retrying...", e.seconds)
-        await asyncio.sleep(e.seconds)
-        if await client.start(phone=cf.PHONE_NUMBER):
-            log.info("Client started!")
-            listener = ChannelListener(client, bot_client, SessionLocal)
-            listener.register()
-            log.info("Channel listener active!")
-        else:
-            log.error("Failed to start the client.")
-            return
+    log.info("Client started!")
+    ChannelListener(client, bot_client, SessionLocal).register()
+    log.info("Channel listener active!")
 
     # Start daily summary scheduler
     scheduler = DailySummaryScheduler(
