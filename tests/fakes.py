@@ -2,6 +2,7 @@
 In-memory stand-ins for Telethon events and the bot client, shared by bot command tests.
 """
 
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -32,6 +33,26 @@ def chat_event(user_id, username="stranger"):
         event.replies.append(text)
 
     event.respond = respond
+    return event
+
+
+def conversation_event(answers, user_id=1, username="owner"):
+    """A chat event whose conversation replies with `answers` in order; an exception instance is raised instead."""
+    event = chat_event(user_id, username)
+    event.chat_id = user_id
+    answers = iter(answers)
+
+    async def wait_event(_builder):
+        answer = next(answers)
+        if isinstance(answer, BaseException):
+            raise answer
+        return SimpleNamespace(raw_text=answer)
+
+    @asynccontextmanager
+    async def conversation(_chat_id, timeout):
+        yield SimpleNamespace(wait_event=wait_event)
+
+    event.client = SimpleNamespace(conversation=conversation)
     return event
 
 

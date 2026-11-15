@@ -4,7 +4,6 @@ Bot command handlers for Telegram bot interactions.
 
 import logging
 import re
-from asyncio import TimeoutError as AsyncTimeoutError
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from enum import StrEnum
@@ -20,6 +19,7 @@ from config import Config
 from match_recorder import has_keywords
 from models import Channel, PriceHistory, Product, User, UserChannel
 from price_parser import parse_target_price
+from prompts import Prompt
 from translations import DEFAULT_LANGUAGE, resolve_lang, t
 
 log = logging.getLogger(__name__)
@@ -68,7 +68,6 @@ def parse_channel_ref(text: str) -> tuple[ChannelRef, str | None]:
     return ChannelRef.INVALID_USERNAME, None
 
 
-_CANCEL_KEYWORDS = {"/cancel", "cancel", "/annulla", "annulla"}
 _SKIP_KEYWORDS = {"/skip", "skip", "/salta", "salta"}
 _YES_KEYWORDS = {"si", "sì", "yes", "ok"}
 
@@ -172,18 +171,8 @@ class BotCommands:
         @self._command("add_channel")
         async def add_channel_command(event, ctx):
 
-            client_event = event.client
-            await event.respond(t("add_channel_prompt", ctx.lang))
-            try:
-                async with client_event.conversation(event.chat_id, timeout=60) as conv:
-                    response = await conv.wait_event(events.NewMessage(from_users=ctx.user_id))
-                    channel_identifier = (response.raw_text or "").strip()
-
-                    if channel_identifier.lower() in _CANCEL_KEYWORDS:
-                        await conv.send_message(t("operation_cancelled", ctx.lang))
-                        return
-            except AsyncTimeoutError:
-                await event.respond(t("timed_out", ctx.lang, command="/add_channel"))
+            channel_identifier = await Prompt(event, ctx, "/add_channel").text(t("add_channel_prompt", ctx.lang))
+            if channel_identifier is None:
                 return
 
             kind, value = parse_channel_ref(channel_identifier)
@@ -243,32 +232,11 @@ class BotCommands:
                     lines.append(f"{i}. {display}")
                     channel_data.append({"id": ch.id, "display": display})
 
-            client_event = event.client
-            await event.respond(t("remove_channel_prompt", ctx.lang, channels="\n".join(lines)))
-            try:
-                async with client_event.conversation(event.chat_id, timeout=60) as conv:
-                    resp = await conv.wait_event(events.NewMessage(from_users=ctx.user_id))
-                    choice = (resp.raw_text or "").strip()
-
-                    if choice.lower() in _CANCEL_KEYWORDS:
-                        await conv.send_message(t("operation_cancelled", ctx.lang))
-                        return
-
-                    try:
-                        idx = int(choice) - 1
-                    except ValueError:
-                        await conv.send_message(t("invalid_choice", ctx.lang, command="/remove_channel"))
-                        return
-
-                    if idx < 0 or idx >= len(channel_data):
-                        await conv.send_message(t("number_out_of_range", ctx.lang, command="/remove_channel"))
-                        return
-
-            except AsyncTimeoutError:
-                await event.respond(t("timed_out", ctx.lang, command="/remove_channel"))
+            chosen = await Prompt(event, ctx, "/remove_channel").pick(
+                t("remove_channel_prompt", ctx.lang, channels="\n".join(lines)), channel_data
+            )
+            if chosen is None:
                 return
-
-            chosen = channel_data[idx]
             log.info("/remove_channel '%s' from user_id=%s", chosen["display"], ctx.user_id)
             with self._session_factory() as session:
                 link = session.query(UserChannel).filter_by(
@@ -283,78 +251,54 @@ class BotCommands:
         @self._command("watch")
         async def watch_command(event, ctx):
 
-            client_event = event.client
-            await event.respond(t("watch_ask_product", ctx.lang))
-            try:
-                async with client_event.conversation(event.chat_id, timeout=60) as conv:
-                    resp = await conv.wait_event(events.NewMessage(from_users=ctx.user_id))
-                    product_name = (resp.raw_text or "").strip()
-
-                    if product_name.lower() in _CANCEL_KEYWORDS:
-                        await conv.send_message(t("operation_cancelled", ctx.lang))
-                        return
-
-                    asin = None
-                    if link := await first_product_link(product_name):
-                        asin, url = link
-                        suggested = slug_keywords(url)
-                        if suggested:
-                            await conv.send_message(t("watch_asin_keywords", ctx.lang, asin=asin, keywords=suggested))
-                        else:
-                            await conv.send_message(t("watch_asin_no_keywords", ctx.lang, asin=asin))
-                        resp_kw = await conv.wait_event(events.NewMessage(from_users=ctx.user_id))
-                        keywords = (resp_kw.raw_text or "").strip()
-                        if keywords.lower() in _CANCEL_KEYWORDS:
-                            await conv.send_message(t("operation_cancelled", ctx.lang))
-                            return
-                        if suggested and keywords.lower() in _YES_KEYWORDS:
-                            product_name = suggested
-                        elif has_keywords(keywords) and keywords.lower() not in _SKIP_KEYWORDS:
-                            product_name = keywords
-                        else:
-                            # Match by link only: the ASIN as name also matches posts quoting it
-                            product_name = asin
-                    elif urls_in_text(product_name):
-                        # Never store (or log) an unreadable link, with its tracking params, as keywords
-                        await conv.send_message(t("watch_link_not_product", ctx.lang))
-                        return
-                    elif not has_keywords(product_name):
-                        # A sticker or punctuation as name would match every post
-                        await conv.send_message(t("watch_name_no_keywords", ctx.lang))
-                        return
-
-                    await conv.send_message(t("watch_ask_price", ctx.lang))
-                    resp2 = await conv.wait_event(events.NewMessage(from_users=ctx.user_id))
-                    price_text = (resp2.raw_text or "").strip()
-
-                    if price_text.lower() in _CANCEL_KEYWORDS:
-                        await conv.send_message(t("operation_cancelled", ctx.lang))
-                        return
-
-                    target_price = None
-                    if price_text.lower() not in _SKIP_KEYWORDS:
-                        target_price = parse_target_price(price_text)
-                        if target_price is None:
-                            await conv.send_message(t("watch_invalid_price", ctx.lang))
-                            return
-
-                    await conv.send_message(t("watch_ask_category", ctx.lang))
-                    resp3 = await conv.wait_event(events.NewMessage(from_users=ctx.user_id))
-                    cat_text = (resp3.raw_text or "").strip()
-
-                    if cat_text.lower() in _CANCEL_KEYWORDS:
-                        await conv.send_message(t("operation_cancelled", ctx.lang))
-                        return
-
-                    category = None
-                    if cat_text.lower() not in _SKIP_KEYWORDS:
-                        category = cat_text.lower()
-
-            except AsyncTimeoutError:
-                await event.respond(t("timed_out", ctx.lang, command="/watch"))
+            ask = Prompt(event, ctx, "/watch")
+            product_name = await ask.text(t("watch_ask_product", ctx.lang))
+            if product_name is None:
                 return
 
+            asin = None
+            if link := await first_product_link(product_name):
+                asin, url = link
+                suggested = slug_keywords(url)
+                if suggested:
+                    keywords = await ask.text(t("watch_asin_keywords", ctx.lang, asin=asin, keywords=suggested))
+                else:
+                    keywords = await ask.text(t("watch_asin_no_keywords", ctx.lang, asin=asin))
+                if keywords is None:
+                    return
+                if suggested and keywords.lower() in _YES_KEYWORDS:
+                    product_name = suggested
+                elif has_keywords(keywords) and keywords.lower() not in _SKIP_KEYWORDS:
+                    product_name = keywords
+                else:
+                    # Match by link only: the ASIN as name also matches posts quoting it
+                    product_name = asin
+            elif urls_in_text(product_name):
+                # Never store (or log) an unreadable link, with its tracking params, as keywords
+                await event.respond(t("watch_link_not_product", ctx.lang))
+                return
+            elif not has_keywords(product_name):
+                # A sticker or punctuation as name would match every post
+                await event.respond(t("watch_name_no_keywords", ctx.lang))
+                return
+
+            price_text = await ask.text(t("watch_ask_price", ctx.lang))
+            if price_text is None:
+                return
+            target_price = None
+            if price_text.lower() not in _SKIP_KEYWORDS:
+                target_price = parse_target_price(price_text)
+                if target_price is None:
+                    await event.respond(t("watch_invalid_price", ctx.lang))
+                    return
+
+            cat_text = await ask.text(t("watch_ask_category", ctx.lang))
+            if cat_text is None:
+                return
+            category = None if cat_text.lower() in _SKIP_KEYWORDS else cat_text.lower()
+
             product_name_lower = product_name.lower()
+            suggested_price = None
             with self._session_factory() as session:
                 existing = session.query(Product).filter(
                     Product.user_id == ctx.user_id,
@@ -367,32 +311,23 @@ class BotCommands:
                 # If there's price history for this product, suggest the minimum price
                 if target_price is None:
                     from sqlalchemy import func
-                    min_price_row = (
+                    suggested_price = (
                         session.query(func.min(PriceHistory.price))
                         .join(Product, Product.id == PriceHistory.product_id)
                         .filter(Product.name == product_name_lower, PriceHistory.price.isnot(None))
                         .scalar()
                     )
-                    if min_price_row is not None:
-                        suggested_price = min_price_row
 
-            # If we have a suggested price from history, ask the user
-            if target_price is None and 'suggested_price' in dir():
-                if suggested_price is not None:
-                    client_event = event.client
-                    await event.respond(
-                        t("watch_suggest_price", ctx.lang, product=product_name, price=suggested_price)
-                    )
-                    try:
-                        async with client_event.conversation(event.chat_id, timeout=60) as conv:
-                            resp_suggest = await conv.wait_event(events.NewMessage(from_users=ctx.user_id))
-                            answer = (resp_suggest.raw_text or "").strip().lower()
-                            if answer in _YES_KEYWORDS:
-                                target_price = suggested_price
-                            elif answer not in _SKIP_KEYWORDS | {"no"}:
-                                target_price = parse_target_price(answer)
-                    except AsyncTimeoutError:
-                        pass
+            # Price history for this product: offer its minimum as target
+            if suggested_price is not None:
+                answer = await ask.text(t("watch_suggest_price", ctx.lang, product=product_name, price=suggested_price))
+                if answer is None:
+                    return
+                answer = answer.lower()
+                if answer in _YES_KEYWORDS:
+                    target_price = suggested_price
+                elif answer not in _SKIP_KEYWORDS | {"no"}:
+                    target_price = parse_target_price(answer)
 
             with self._session_factory() as session:
                 session.add(Product(
@@ -443,32 +378,11 @@ class BotCommands:
                     lines.append(f"{i}. {p.name} ({price_str})")
                     product_ids.append({"id": p.id, "name": p.name})
 
-            client_event = event.client
-            await event.respond(t("unwatch_prompt", ctx.lang, products="\n".join(lines)))
-            try:
-                async with client_event.conversation(event.chat_id, timeout=60) as conv:
-                    resp = await conv.wait_event(events.NewMessage(from_users=ctx.user_id))
-                    choice = (resp.raw_text or "").strip()
-
-                    if choice.lower() in _CANCEL_KEYWORDS:
-                        await conv.send_message(t("operation_cancelled", ctx.lang))
-                        return
-
-                    try:
-                        idx = int(choice) - 1
-                    except ValueError:
-                        await conv.send_message(t("invalid_choice", ctx.lang, command="/unwatch"))
-                        return
-
-                    if idx < 0 or idx >= len(product_ids):
-                        await conv.send_message(t("number_out_of_range", ctx.lang, command="/unwatch"))
-                        return
-
-            except AsyncTimeoutError:
-                await event.respond(t("timed_out", ctx.lang, command="/unwatch"))
+            chosen = await Prompt(event, ctx, "/unwatch").pick(
+                t("unwatch_prompt", ctx.lang, products="\n".join(lines)), product_ids
+            )
+            if chosen is None:
                 return
-
-            chosen = product_ids[idx]
             log.info("/unwatch '%s' from user_id=%s", chosen["name"], ctx.user_id)
             with self._session_factory() as session:
                 product = session.query(Product).filter_by(id=chosen["id"]).first()
@@ -493,27 +407,11 @@ class BotCommands:
                 chosen = product_data[0]
             else:
                 lines = [f"{i}. {p['name']}" for i, p in enumerate(product_data, 1)]
-                client_event = event.client
-                await event.respond(t("history_prompt", ctx.lang, products="\n".join(lines)))
-                try:
-                    async with client_event.conversation(event.chat_id, timeout=60) as conv:
-                        resp = await conv.wait_event(events.NewMessage(from_users=ctx.user_id))
-                        choice = (resp.raw_text or "").strip()
-                        if choice.lower() in _CANCEL_KEYWORDS:
-                            await conv.send_message(t("operation_cancelled", ctx.lang))
-                            return
-                        try:
-                            idx = int(choice) - 1
-                        except ValueError:
-                            await conv.send_message(t("invalid_choice", ctx.lang, command="/history"))
-                            return
-                        if idx < 0 or idx >= len(product_data):
-                            await conv.send_message(t("number_out_of_range", ctx.lang, command="/history"))
-                            return
-                except AsyncTimeoutError:
-                    await event.respond(t("timed_out", ctx.lang, command="/history"))
+                chosen = await Prompt(event, ctx, "/history").pick(
+                    t("history_prompt", ctx.lang, products="\n".join(lines)), product_data
+                )
+                if chosen is None:
                     return
-                chosen = product_data[idx]
 
             log.info("/history '%s' from user_id=%s", chosen["name"], ctx.user_id)
             with self._session_factory() as session:
