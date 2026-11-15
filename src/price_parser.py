@@ -17,8 +17,9 @@ _PRICE_PATTERN = re.compile(
 )
 
 
-# An amount preceded or followed by these is a discount, not a price: "Sconto 5€", "1€ dal minimo".
-_DISCOUNT_BEFORE = re.compile(r"\b(?:sconto|coupon)\s+(?:di\s+)?$", re.IGNORECASE)
+# A discount, not a price: a line opening with "Sconto 5€" (mid-line, "con coupon 39€" is the price paid),
+# or an amount followed by "dal minimo" / "di sconto".
+_DISCOUNT_BEFORE = re.compile(r"^[^\w]*(?:sconto|coupon)[\s:\-]+(?:d[ia]\s+)?$", re.IGNORECASE)
 _DISCOUNT_AFTER = re.compile(r"\s*(?:dal\s+minimo|di\s+(?:sconto|coupon))\b", re.IGNORECASE)
 
 
@@ -32,7 +33,7 @@ def extract_prices(text: str) -> list[float]:
     prices = []
     for match in _PRICE_PATTERN.finditer(text):
         raw = match.group(1) or match.group(2)
-        before = text[max(0, match.start() - 20) : match.start()]
+        before = text[text.rfind("\n", 0, match.start()) + 1 : match.start()]
         if raw and not _DISCOUNT_BEFORE.search(before) and not _DISCOUNT_AFTER.match(text, match.end()):
             prices.append(_to_float(raw))
     return prices

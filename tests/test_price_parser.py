@@ -113,3 +113,17 @@ def test_discount_named_before_the_amount_is_not_a_price():
 
 def test_discounted_price_is_still_a_price():
     assert extract_prices("Prezzo scontato 39€") == [39.0]
+
+
+@pytest.mark.parametrize("line", ["Sconto: 5€", "🛒 Sconto -5€", "Coupon da 5€"])
+def test_discount_line_variants_are_not_prices(line):
+    assert extract_prices(f"A 30€\n{line}") == [30.0]
+
+
+@pytest.mark.parametrize(
+    "line, price",
+    [("Prezzo con coupon 39,99€", 39.99), ("con lo sconto 39€", 39.0), ("Codice sconto 39€", 39.0)],
+)
+def test_price_after_coupon_or_discount_mid_line_is_a_price(line, price):
+    """Only a line that opens with 'Sconto'/'Coupon' states an amount off; mid-line it is the price paid."""
+    assert extract_prices(line) == [price]
