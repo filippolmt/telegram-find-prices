@@ -1,5 +1,8 @@
+import errno
 import logging
 from pathlib import Path
+
+import pytest
 
 from config import tighten_permissions
 
@@ -21,7 +24,8 @@ def test_world_writable_dir_and_files_become_owner_only(tmp_path):
     assert all(_mode(p) == 0o600 for p in tmp_path.iterdir())
 
 
-def test_chmod_permission_error_is_skipped_and_others_tightened(tmp_path, monkeypatch, caplog):
+@pytest.mark.parametrize("error", [PermissionError(), OSError(errno.EROFS, "Read-only file system")])
+def test_chmod_error_is_skipped_and_others_tightened(error, tmp_path, monkeypatch, caplog):
     locked, other = tmp_path / "locked", tmp_path / "other"
     for p in (locked, other):
         p.touch()
@@ -30,7 +34,7 @@ def test_chmod_permission_error_is_skipped_and_others_tightened(tmp_path, monkey
 
     def chmod(self, mode):
         if self == locked:
-            raise PermissionError
+            raise error
         real_chmod(self, mode)
 
     monkeypatch.setattr(Path, "chmod", chmod)

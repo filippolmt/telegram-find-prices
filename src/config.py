@@ -23,18 +23,20 @@ DATA_DIR.mkdir(exist_ok=True)
 
 def tighten_permissions(data_dir: Path) -> None:
     """Set data_dir to 700 and its direct regular files to 600: umask misses files that already exist."""
-    # Runtipi chmods app-data 777; symlinks and subdirectories are not followed
-    targets = [(data_dir, 0o700)] + [
-        (p, 0o600) for p in data_dir.iterdir() if p.is_file() and not p.is_symlink()
-    ]
-    for path, mode in targets:
+    # app-data is found 777 on Runtipi; symlinks and subdirectories are not followed
+    try:
+        files = [p for p in data_dir.iterdir() if p.is_file() and not p.is_symlink()]
+    except OSError as e:
+        log.warning("Cannot list %s: %s", data_dir, e)
+        files = []
+    for path, mode in [(data_dir, 0o700)] + [(p, 0o600) for p in files]:
         try:
             current = path.stat().st_mode & 0o777
             if current != mode:
                 path.chmod(mode)
-                log.warning("Tightened %s from %o to %o", path, current, mode)
-        except PermissionError:
-            log.warning("Cannot chmod %s: permission denied", path)
+                log.warning("Set %s from %o to %o", path, current, mode)
+        except OSError as e:
+            log.warning("Cannot chmod %s: %s", path, e)
 
 
 tighten_permissions(DATA_DIR)
