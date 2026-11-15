@@ -24,16 +24,21 @@ _DISCOUNT_PREFIX = re.compile(
     r"""
     (?:
         ^\W*(?:sconto|risparmi[oa]?)[\s:\-]+(?:d[ia]\s+)?   # "🛒 Sconto 5,77€", "Risparmi 18,23€"
-        | ^\W*coupon\s+d[ia]\s+                            # "Coupon da 5€" ("Coupon: 39€" is the price)
+        | ^\W*coupon\s+d[ia][\s:]+                         # "Coupon da 5€", "Coupon da: 5€" ("Coupon: 39€" is the price)
         | \bapplica\s+(?:il\s+)?coupon[\s:]+(?:d[ia]\s+)?  # "Applica il coupon da 2,92€"
         | \bspesa\s+minima\s+di\s+                         # "spesa minima di 35€"
         | \(\s*sconto[\s:\-]+(?:di\s+)?                     # "(sconto 10€)"
+        | ^\W*al\s+supermercato\b.*                         # "Al supermercato costa 4,37€. QUI SOLO 3,12€" (unit prices)
     )$
     """,
     re.IGNORECASE | re.VERBOSE,
 )
-# Text right after an amount that makes it an amount off: "1€ dal minimo", "10€ di sconto", "32€ di ribasso", "200 euro in meno".
-_DISCOUNT_SUFFIX = re.compile(r"\s*(?:dal\s+(?:prezzo\s+)?minimo|di\s+(?:sconto|coupon|ribasso)|in\s+meno)\b", re.IGNORECASE)
+# Text right after an amount that makes it an amount off, money back or a per-use price:
+# "1€ dal minimo", "10€ di sconto", "50€ di rimborso", "200 euro in meno", "0,07€ per lavaggio".
+_DISCOUNT_SUFFIX = re.compile(
+    r"\s*(?:dal\s+(?:prezzo\s+)?minimo|di\s+(?:sconto|coupon|ribasso|rimborso|cashback)|in\s+meno|per\s+(?:lavaggio|bustina))\b",
+    re.IGNORECASE,
+)
 
 
 def _is_discount(text: str, match: re.Match) -> bool:
