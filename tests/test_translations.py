@@ -50,11 +50,11 @@ class TestTranslate:
 
     def test_interpolation_english(self):
         result = t("welcome", "en", username="Alice")
-        assert result == "Hi Alice, welcome! Use /add_channel to add a channel to monitor."
+        assert result == "Hi Alice, welcome! Use /add_channel to add a channel to monitor and /watch to follow a product."
 
     def test_interpolation_italian(self):
         result = t("welcome", "it", username="Alice")
-        assert result == "Ciao Alice, benvenuto! Usa /add_channel per aggiungere un canale da monitorare."
+        assert result == "Ciao Alice, benvenuto! Usa /add_channel per aggiungere un canale da monitorare e /watch per seguire un prodotto."
 
     def test_fallback_unsupported_language(self):
         result = t("not_authorized", "de")

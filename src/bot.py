@@ -58,7 +58,8 @@ async def main():
     bot_client = create_client(bot_session_name, api_id, api_hash)
     client = create_client(client_session_name, api_id, api_hash, session_string=cf.CLIENT_SESSION_STRING)
     client_commands = ClientCommands(client, SessionLocal, bot_client)
-    bot_commands = BotCommands(bot_client, client_commands, SessionLocal)
+    channel_folder = ChannelFolder(client, client_commands, SessionLocal, cf.CHANNEL_FOLDER) if cf.CHANNEL_FOLDER else None
+    bot_commands = BotCommands(bot_client, client_commands, SessionLocal, channel_folder)
 
     try:
         if await bot_client.start(bot_token=bot_token):
@@ -106,8 +107,7 @@ async def main():
     )
     scheduler.start()
 
-    if cf.CHANNEL_FOLDER:
-        channel_folder = ChannelFolder(client, client_commands, SessionLocal, cf.CHANNEL_FOLDER)
+    if channel_folder:
         channel_folder.register()
         await channel_folder.sync()
 

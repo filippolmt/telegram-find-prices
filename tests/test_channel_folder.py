@@ -9,10 +9,13 @@ from telethon.errors import ChannelPrivateError
 from telethon.tl.types import DialogFilter, InputPeerChannel, TextWithEntities
 from telethon.tl.types.messages import DialogFilters
 
+from bot_commands import BotCommands
 from channel_folder import ChannelFolder
 from client_commands import ClientCommands
 from config import Config
 from models import User
+from tests.fakes import FakeBotClient, chat_event
+from translations import t
 
 OWNER = 100
 CHANNELS = {
@@ -180,3 +183,31 @@ async def test_inaccessible_channel_is_skipped_and_unlinked(monkeypatch, db_sess
 
     assert await commands.list_channels(OWNER) == []
     assert "skipping channel 1, no longer accessible" in caplog.text
+
+
+def _bot_with_folder(monkeypatch, db_session_factory, client):
+    commands, folder = _setup(monkeypatch, db_session_factory, client, register_owner=False, allowed=(OWNER, OWNER + 1))
+    bot = BotCommands(FakeBotClient(), commands, db_session_factory, channel_folder=folder)
+    bot.register_commands()
+    return commands, bot
+
+
+async def test_owner_start_reads_folder_at_once(monkeypatch, db_session_factory):
+    commands, bot = _bot_with_folder(monkeypatch, db_session_factory, FakeClient(_folder(1, 2)))
+    event = chat_event(OWNER, username="owner")
+
+    await bot.bot_client.dispatch("/start", event)
+
+    assert event.replies == [t("welcome", "en", username="owner"),
+                             t("folder_channels_monitored", "en", folder="Offers", count=2)]
+    assert len(await commands.list_channels(OWNER)) == 2
+
+
+async def test_other_user_start_leaves_folder_alone(monkeypatch, db_session_factory):
+    commands, bot = _bot_with_folder(monkeypatch, db_session_factory, FakeClient(_folder(1, 2)))
+    event = chat_event(OWNER + 1, username="friend")
+
+    await bot.bot_client.dispatch("/start", event)
+
+    assert event.replies == [t("welcome", "en", username="friend")]
+    assert await commands.list_channels(OWNER) == []
