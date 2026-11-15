@@ -18,13 +18,27 @@ _PRICE_PATTERN = re.compile(
 )
 
 
-# Not a price: a line opening with "Sconto 5€" / "Risparmi 5€" (mid-line, "con coupon 39€" is the price paid),
-# "Applica il coupon da 5€", "spesa minima di 35€", or an amount followed by "dal minimo" / "di sconto" / "in meno".
-_DISCOUNT_BEFORE = re.compile(
-    r"(?:^[^\w]*(?:sconto|coupon|risparmi)|\bapplica\s+(?:il\s+)?coupon|\bspesa\s+minima)[\s:\-]+(?:d[ia]\s+)?$",
-    re.IGNORECASE,
+# Line text right before an amount that makes it an amount off, not a price.
+# Mid-line, "con coupon 39€" / "Codice sconto 39€" is the price paid, so most cases are anchored to the line start.
+_DISCOUNT_PREFIX = re.compile(
+    r"""
+    (?:
+        ^\W*(?:sconto|risparmi[oa]?)[\s:\-]+(?:d[ia]\s+)?   # "🛒 Sconto 5,77€", "Risparmi 18,23€"
+        | ^\W*coupon\s+d[ia]\s+                            # "Coupon da 5€" ("Coupon: 39€" is the price)
+        | \bapplica\s+(?:il\s+)?coupon[\s:]+(?:d[ia]\s+)?  # "Applica il coupon da 2,92€"
+        | \bspesa\s+minima\s+di\s+                         # "spesa minima di 35€"
+        | \(\s*sconto[\s:\-]+(?:di\s+)?                     # "(sconto 10€)"
+    )$
+    """,
+    re.IGNORECASE | re.VERBOSE,
 )
-_DISCOUNT_AFTER = re.compile(r"\s*(?:dal\s+minimo|di\s+(?:sconto|coupon)|in\s+meno)\b", re.IGNORECASE)
+# Text right after an amount that makes it an amount off: "1€ dal minimo", "10€ di sconto", "200 euro in meno".
+_DISCOUNT_SUFFIX = re.compile(r"\s*(?:dal\s+(?:prezzo\s+)?minimo|di\s+(?:sconto|coupon)|in\s+meno)\b", re.IGNORECASE)
+
+
+def _is_discount(text: str, match: re.Match) -> bool:
+    line_before = text[text.rfind("\n", 0, match.start()) + 1 : match.start()]
+    return bool(_DISCOUNT_PREFIX.search(line_before) or _DISCOUNT_SUFFIX.match(text, match.end()))
 
 
 def _to_float(raw: str) -> float:
@@ -37,8 +51,7 @@ def extract_prices(text: str) -> list[float]:
     prices = []
     for match in _PRICE_PATTERN.finditer(text):
         raw = match.group(1) or match.group(2)
-        before = text[text.rfind("\n", 0, match.start()) + 1 : match.start()]
-        if raw and not _DISCOUNT_BEFORE.search(before) and not _DISCOUNT_AFTER.match(text, match.end()):
+        if raw and not _is_discount(text, match):
             prices.append(_to_float(raw))
     return prices
 

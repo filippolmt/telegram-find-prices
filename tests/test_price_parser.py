@@ -102,37 +102,21 @@ def test_distance_from_historical_low_is_not_a_price():
     assert extract_prices("Ninja Blast a 1€ dal minimo\n📉 In offerta a 39,99€") == [39.99]
 
 
-@pytest.mark.parametrize("line", ["Prodotti inclusi di 50€ di coupon", "Subito 10€ di sconto"])
-def test_amount_of_discount_or_coupon_is_not_a_price(line):
-    assert extract_prices(f"{line}\nDaya Lavastoviglie a 169,00€") == [169.0]
-
-
-def test_discount_named_before_the_amount_is_not_a_price():
-    assert extract_prices("📉 A 32,72€ invece di 38,49€\n🛒 Sconto 5,77€ visibile in APP") == [32.72, 38.49]
-
-
-def test_discounted_price_is_still_a_price():
-    assert extract_prices("Prezzo scontato 39€") == [39.0]
-
-
-@pytest.mark.parametrize("line", ["Sconto: 5€", "🛒 Sconto -5€", "Coupon da 5€"])
-def test_discount_line_variants_are_not_prices(line):
-    assert extract_prices(f"A 30€\n{line}") == [30.0]
-
-
-@pytest.mark.parametrize(
-    "line, price",
-    [("Prezzo con coupon 39,99€", 39.99), ("con lo sconto 39€", 39.0), ("Codice sconto 39€", 39.0)],
-)
-def test_price_after_coupon_or_discount_mid_line_is_a_price(line, price):
-    """Only a line that opens with 'Sconto'/'Coupon' states an amount off; mid-line it is the price paid."""
-    assert extract_prices(line) == [price]
-
-
 @pytest.mark.parametrize(
     "line",
     [
+        "Prodotti inclusi di 50€ di coupon",
+        "Subito 10€ di sconto",
+        "🛒 Sconto 5,77€ visibile in APP",
+        "Sconto: 5€",
+        "🛒 Sconto -5€",
+        "Coupon da 5€",
+        "Coupon di 5€",
         "Risparmi 250,00€ con 👉 @scontitoday",
+        "Risparmio 10€",
+        "Risparmia 5€",
+        "Prezzo pieno (sconto 10€)",
+        "- 10€ dal prezzo minimo",
         "Apple Watch Series 12 in titanio oro con 200 euro di sconto",
         "Il nuovo Studio Display di Apple costa 200 euro in meno su Amazon",
         "✅ Applica il coupon da 2,92€ al check out per ottenere questo prezzo!",
@@ -140,5 +124,22 @@ def test_price_after_coupon_or_discount_mid_line_is_a_price(line, price):
         "🎁 Ottieni un omaggio con una spesa minima di 35€",
     ],
 )
-def test_amounts_off_seen_in_real_channels_are_not_prices(line):
+def test_amount_off_is_not_a_price(line):
+    """Discounts, coupons, savings and minimum spends, mostly lines from real channels."""
     assert extract_prices(f"💰 Scende a 649,90€ da 899,90€\n{line}") == [649.90, 899.90]
+
+
+@pytest.mark.parametrize(
+    "line, prices",
+    [
+        ("Prezzo scontato 39€", [39.0]),
+        ("Prezzo con coupon 39,99€", [39.99]),
+        ("con lo sconto 39€", [39.0]),
+        ("Codice sconto 39€", [39.0]),
+        ("Coupon: 39,99€", [39.99]),
+        ("Coupon 39,99€ invece di 49€", [39.99, 49.0]),
+    ],
+)
+def test_price_paid_with_coupon_or_discount_is_a_price(line, prices):
+    """Mid-line, or "Coupon" without "di"/"da", the amount is the price paid."""
+    assert extract_prices(line) == prices
