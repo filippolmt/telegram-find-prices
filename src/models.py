@@ -50,7 +50,7 @@ class UserChannel(Base):
         "users.user_id", ondelete="CASCADE"), primary_key=True)
     channel_id = Column(Integer, ForeignKey(
         "channels.id", ondelete="CASCADE"), primary_key=True)
-    # Linked by the Channel folder sync, which may unlink it; False once the user adds it by hand
+    # Linked by the Channel folder, which unlinks it when it leaves; False once the user adds it by hand
     from_folder = Column(Boolean, nullable=False, default=False, server_default="0")
 
 

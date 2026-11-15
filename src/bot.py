@@ -21,11 +21,11 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 from bot_commands import BotCommands
+from channel_folder import ChannelFolder
 from channel_listener import ChannelListener
 from client_commands import ClientCommands
 from config import Config
 from database import Base, SessionLocal, engine, run_migrations
-from folder_sync import FolderSync
 from scheduler import DailySummaryScheduler
 
 
@@ -107,9 +107,9 @@ async def main():
     scheduler.start()
 
     if cf.CHANNEL_FOLDER:
-        folder_sync = FolderSync(client, client_commands, SessionLocal, cf.CHANNEL_FOLDER)
-        folder_sync.register()
-        await folder_sync.sync()
+        channel_folder = ChannelFolder(client, client_commands, SessionLocal, cf.CHANNEL_FOLDER)
+        channel_folder.register()
+        await channel_folder.sync()
 
     await bot_client.run_until_disconnected()
     await client.disconnect()

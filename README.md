@@ -169,7 +169,7 @@ src/
   bot_commands.py             # Bot command handlers
   client_commands.py          # Telegram client operations
   channel_listener.py         # Channel message listener
-  folder_sync.py              # Channel folder (CHANNEL_FOLDER) sync
+  channel_folder.py           # Channel folder (CHANNEL_FOLDER): links its channels
   price_parser.py             # European price format parser
   scheduler.py                # Daily summary scheduler
   translations.py             # i18n: message translations (en/it)

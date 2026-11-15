@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 _RULE_FLAGS = ("contacts", "non_contacts", "groups", "broadcasts", "bots")
 
 
-class FolderSync:
+class ChannelFolder:
     """Link the folder's channels to the owner (the user client's account) and unlink those that leave it."""
 
     def __init__(self, client: TelegramClient, client_commands: ClientCommands,
@@ -45,7 +45,10 @@ class FolderSync:
                 await self._sync()
             except RPCError as e:
                 # Nothing was unlinked: a partial channel list must never pass for the whole folder
-                log.error("Channel folder sync failed: %s", e)
+                log.error("Channel folder: update failed: %s", e)
+            except Exception:
+                # Awaited at startup: a failure here must not take the bot down
+                log.exception("Channel folder: update failed")
 
     async def _sync(self):
         owner_id = (await self.client.get_me()).id
@@ -98,6 +101,8 @@ class FolderSync:
                     channel = Channel(identifier=identifier, title=title)
                     session.add(channel)
                     session.flush()
+                elif title and not channel.title:
+                    channel.title = title
                 if session.get(UserChannel, (owner_id, channel.id)) is None:
                     session.add(UserChannel(user_id=owner_id, channel_id=channel.id, from_folder=True))
                     entered.append(identifier)

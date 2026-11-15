@@ -1,5 +1,5 @@
 """
-Tests for FolderSync: the Channel folder's channels are monitored for the owner.
+Tests for ChannelFolder: the Channel folder's channels are monitored for the owner.
 """
 
 from types import SimpleNamespace
@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock
 from telethon.tl.types import DialogFilter, InputPeerChannel, TextWithEntities
 from telethon.tl.types.messages import DialogFilters
 
+from channel_folder import ChannelFolder
 from client_commands import ClientCommands
-from folder_sync import FolderSync
 from models import User
 
 OWNER = 100
@@ -48,7 +48,7 @@ def _setup(db_session_factory, client, register_owner=True):
             session.commit()
     commands = ClientCommands(client, db_session_factory, MagicMock())
     commands.backfill_channel = AsyncMock(return_value=0)
-    return commands, FolderSync(client, commands, db_session_factory, "Offers")
+    return commands, ChannelFolder(client, commands, db_session_factory, "Offers")
 
 
 async def test_channel_entering_folder_is_linked_and_backfilled(db_session_factory):
@@ -112,3 +112,17 @@ async def test_owner_not_registered_skips_sync(db_session_factory, caplog):
     assert await commands.list_channels(OWNER) == []
     commands.backfill_channel.assert_not_awaited()
     assert "send /start" in caplog.text
+
+
+async def test_channel_added_by_hand_entering_folder_is_not_backfilled_again(db_session_factory):
+    client = FakeClient(_folder())
+    commands, sync = _setup(db_session_factory, client)
+    await commands.join_channel("deals", OWNER)
+
+    client.folders = [_folder(1)]
+    await sync.sync()
+    client.folders = [_folder()]
+    await sync.sync()
+
+    assert await commands.list_channels(OWNER) == ["Deals (deals)"]
+    commands.backfill_channel.assert_not_awaited()
