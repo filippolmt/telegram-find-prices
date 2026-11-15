@@ -44,6 +44,20 @@ async def test_watch_takes_the_product_link_given_with_the_command(monkeypatch, 
         assert (product.name, product.asin) == ("shelly 2pm gen4", "B0F9LJFWPB")
 
 
+async def test_watch_amzlink_to_link_watches_the_product_it_redirects_to(monkeypatch, db_session_factory, http):
+    redirects, _ = http
+    redirects["https://amzlink.to/az0kGqTudJpp2"] = "https://r.amzlink.to/?id=1"
+    redirects["https://r.amzlink.to/?id=1"] = "https://www.amazon.it/dp/B0FJM47NB2"
+    bot = registered_bot(monkeypatch, db_session_factory)
+    event = conversation_event(["belkin boostcharge", "/skip", "/skip"])
+
+    await bot.bot_client.dispatch("/watch https://amzlink.to/az0kGqTudJpp2", event)
+
+    with db_session_factory() as session:
+        product = session.query(Product).one()
+        assert (product.name, product.asin) == ("belkin boostcharge", "B0FJM47NB2")
+
+
 def _priced_elsewhere(db_session_factory, name, price):
     with db_session_factory() as session:
         session.add(User(id=2, user_id=2, username="other"))

@@ -1,10 +1,9 @@
 """
 Amazon product links: ASIN parsing and short-link resolution.
 
-Channel URLs are untrusted: only Amazon short-link hosts (plus the third-party amzlink.to,
-and the redirectors they hop through) are ever requested, the
-host allowlist is checked on every redirect hop, and Amazon pages themselves are
-never fetched (the ASIN is parsed from the URL).
+Channel URLs are untrusted: only short-link hosts (and the redirectors they hop through)
+are ever requested, the host allowlist is checked on every redirect hop, and Amazon pages
+themselves are never fetched (the ASIN is parsed from the URL).
 """
 
 import asyncio
@@ -16,10 +15,15 @@ from urllib.parse import urljoin, urlsplit
 
 log = logging.getLogger(__name__)
 
-SHORT_LINK_HOSTS = {"link.amazon", "amzn.to", "amzn.eu", "amzlink.to"}
-# Followed only as a redirect straight from a short link, never requested when a post links to them directly.
-# amzlinks.in (Button, Inc.) sits between link.amazon and amazon.it; r.amzlink.to between amzlink.to and amazon.it.
-REDIRECT_HOSTS = {"amzlinks.in", "r.amzlink.to"}
+AMAZON_SHORT_LINK_HOSTS = {"link.amazon", "amzn.to", "amzn.eu"}
+# Hosts requested when a post links to them: Amazon's own, plus amzlink.to, a third-party
+# shortener that is the only link form some channels (RisparmiareSulWeb) use.
+SHORT_LINK_HOSTS = AMAZON_SHORT_LINK_HOSTS | {"amzlink.to"}
+# Redirector -> the short-link hosts it may be reached from, in one hop. Never requested when a post links to it directly.
+REDIRECT_HOSTS = {
+    "amzlinks.in": AMAZON_SHORT_LINK_HOSTS,  # Button, Inc.: link.amazon -> amzlinks.in -> amazon.it
+    "r.amzlink.to": {"amzlink.to"},  # amzlink.to -> r.amzlink.to -> amazon.it
+}
 MAX_HOPS = 3
 _TIMEOUT = 5  # seconds per request
 _CACHE_MAX = 2000
@@ -112,7 +116,7 @@ async def resolve_amazon_url(url: str) -> str | None:
         host = (parts.hostname or "").lower()
         if parts.scheme not in ("http", "https") or parts.port is not None:
             break
-        if host not in SHORT_LINK_HOSTS and not (host in REDIRECT_HOSTS and previous_host in SHORT_LINK_HOSTS):
+        if host not in SHORT_LINK_HOSTS and previous_host not in REDIRECT_HOSTS.get(host, ()):
             break
         if hop == MAX_HOPS:
             log.warning("Short link %s: too many redirects", _loggable(url))

@@ -8,7 +8,7 @@ Telegram bot that monitors channels and notifies you when a product you're looki
 - `/add_channel` - Add a channel to monitor (public or invite link); `/add_channel @channel` skips the question
 - `/remove_channel` - Remove a channel from monitoring (keeps the Telegram subscription)
 - `/list_channels` - Show your monitored channels
-- `/watch` - Add a product to monitor by name or Amazon product link (with optional target price and category); `/watch <name or link>` skips the first question. A product added by link also matches posts that link to it through Amazon short links (`link.amazon`, `amzn.to`, `amzn.eu`, `amzlink.to`)
+- `/watch` - Add a product to monitor by name or Amazon product link (with optional target price and category); `/watch <name or link>` skips the first question. A product added by link also matches posts that link to it through Amazon short links (`link.amazon`, `amzn.to`, `amzn.eu`) or the `amzlink.to` shortener
 - `/list_products` - Show your monitored products
 - `/unwatch` - Remove a product from monitoring
 - `/history` - View price history for a product
