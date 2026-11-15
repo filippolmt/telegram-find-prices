@@ -77,6 +77,12 @@ def _channel_label(channel) -> str:
     return f"{channel.title} ({channel.identifier})" if channel.title else channel.identifier
 
 
+def _command_argument(event) -> str:
+    """The text after the command ('/watch <link>'): it answers the command's first question. '' if none."""
+    parts = (event.raw_text or "").split(maxsplit=1)
+    return parts[1].strip() if len(parts) > 1 else ""
+
+
 CommandFlow = Callable[[events.NewMessage.Event, CommandContext], Awaitable[None]]
 
 
@@ -170,7 +176,7 @@ class BotCommands:
         async def add_channel_command(event, ctx):
 
             async with conversation(event, ctx, "/add_channel") as ask:
-                channel_identifier = await ask.text("add_channel_prompt")
+                channel_identifier = _command_argument(event) or await ask.text("add_channel_prompt")
             if channel_identifier is None:
                 return
 
@@ -244,7 +250,7 @@ class BotCommands:
         async def watch_command(event, ctx):
 
             async with conversation(event, ctx, "/watch") as ask:
-                product_name = await ask.text("watch_ask_product")
+                product_name = _command_argument(event) or await ask.text("watch_ask_product")
                 if product_name is None:
                     return
 

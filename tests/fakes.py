@@ -73,6 +73,7 @@ class FakeBotClient:
         return add
 
     async def dispatch(self, text, event):
+        event.raw_text = text
         matched = [h for b, h in self.handlers if b.pattern(text)]
         assert len(matched) == 1, f"{text!r} matched {len(matched)} handlers"
         await matched[0](event)

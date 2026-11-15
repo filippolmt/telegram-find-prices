@@ -32,6 +32,18 @@ async def test_watch_link_with_keywords_without_letters_matches_by_link_only(mon
         assert (product.name, product.asin) == ("b0test1234", "B0TEST1234")
 
 
+async def test_watch_takes_the_product_link_given_with_the_command(monkeypatch, db_session_factory):
+    bot = registered_bot(monkeypatch, db_session_factory)
+    event = conversation_event(["shelly 2pm gen4", "/skip", "/skip"])
+
+    await bot.bot_client.dispatch("/watch https://www.amazon.it/Shelly-2PM-Gen4/dp/B0F9LJFWPB/ref=sr_1_2?th=1", event)
+
+    assert event.replies[0] == t("watch_asin_keywords", "en", asin="B0F9LJFWPB", keywords="shelly 2pm gen4")
+    with db_session_factory() as session:
+        product = session.query(Product).one()
+        assert (product.name, product.asin) == ("shelly 2pm gen4", "B0F9LJFWPB")
+
+
 def _priced_elsewhere(db_session_factory, name, price):
     with db_session_factory() as session:
         session.add(User(id=2, user_id=2, username="other"))
