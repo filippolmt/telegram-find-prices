@@ -80,6 +80,15 @@ CLIENT_SESSION_STRING=1BVtsO...
 
 No session files needed. Ideal for containers and CI/CD.
 
+Without the repo (e.g. on the server, or a self-hosting platform such as Runtipi), the published image generates it, for amd64 and arm64 alike:
+
+```bash
+docker run --rm -it -e API_ID=123456 -e API_HASH=abc -e PHONE_NUMBER=+39... \
+  ghcr.io/filippolmt/telegram-find-prices:latest python src/generate_string_session.py
+```
+
+The bot itself never asks for a login code: with no authorized session it logs `User session not authorized` and exits, so a container restarting it does not send a new code to your phone each time.
+
 **Option B: File-based session**
 
 ```bash
@@ -205,7 +214,7 @@ git tag v1.0.0
 git push origin v1.0.0
 ```
 
-The image is tagged with the version (e.g. `1.0.0`) and `latest`. The production compose uses the pre-built image from `ghcr.io/filippolmt/telegram-find-prices:latest`. The `data/` volume persists the SQLite database and session files on the host.
+The image is built for `linux/amd64` and `linux/arm64`, tagged with the version (e.g. `1.0.0`) and `latest`. The production compose uses the pre-built image from `ghcr.io/filippolmt/telegram-find-prices:latest`. The `data/` volume persists the SQLite database and session files on the host.
 
 Variables are resolved via Docker Compose interpolation (`${VAR}`): host environment variables take precedence over the `.env` file in the `production/` directory, which takes precedence over defaults defined in the compose file. A variable missing from `production/docker-compose.yml` never reaches the container.
 
