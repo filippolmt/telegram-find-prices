@@ -21,6 +21,8 @@ from translations import DEFAULT_LANGUAGE, t
 
 log = logging.getLogger(__name__)
 
+BACKFILL_FLOOD_RETRIES = 3
+
 
 class ClientCommands:
     """Telegram user client operations (channel management, backfill)."""
@@ -93,7 +95,12 @@ class ClientCommands:
         """
         with self._session_factory() as session:
             # Usernames are case-insensitive on Telegram
-            channel = session.query(Channel).filter(func.lower(Channel.identifier) == identifier.lower()).first()
+            channel = (
+                session.query(Channel)
+                .filter(func.lower(Channel.identifier) == identifier.lower())
+                .order_by(Channel.id)  # rows saved before this check may differ only in case: take the oldest
+                .first()
+            )
             if channel is None:
                 channel = Channel(identifier=identifier, title=title)
                 session.add(channel)
@@ -132,7 +139,7 @@ class ClientCommands:
             channel_username = getattr(entity, "username", None)
             channel_id = getattr(entity, "id", None)
 
-            remaining, offset_id = limit, 0
+            remaining, offset_id, flood_waits = limit, 0, 0
             while remaining > 0:
                 try:
                     # offset_id: resume below the last message read before a FloodWait
@@ -149,9 +156,15 @@ class ClientCommands:
                                 matches_found += 1
                     break
                 except FloodWaitError as e:
-                    log.warning("FloodWait during backfill of '%s': waiting %ds, then resuming",
-                                channel_identifier, e.seconds)
+                    flood_waits += 1
+                    log.warning("FloodWait during backfill of '%s' (%d/%d): waiting %ds",
+                                channel_identifier, flood_waits, BACKFILL_FLOOD_RETRIES, e.seconds)
                     await asyncio.sleep(e.seconds)
+                    if flood_waits == BACKFILL_FLOOD_RETRIES:
+                        # A partial backfill beats holding the Channel folder's lock indefinitely
+                        log.warning("Backfill of '%s' stopped after %d FloodWaits",
+                                    channel_identifier, flood_waits)
+                        break
 
         except FloodWaitError as e:
             # Resolving the channel failed; waiting keeps the next sequential backfill (Channel folder) from hitting it

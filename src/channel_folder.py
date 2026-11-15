@@ -36,7 +36,7 @@ class ChannelFolder:
         self._lock = asyncio.Lock()
 
     def register(self):
-        """Sync again whenever the account's folders change, and every POLL_SECONDS.
+        """Read the folder again whenever the account's folders change, and every POLL_SECONDS.
 
         Polling covers folder updates that never reach the user client (not verified that they do)
         and an owner who sends /start after startup.
@@ -51,7 +51,7 @@ class ChannelFolder:
             await self.sync()
 
     async def sync(self):
-        # A folder update during a running sync (e.g. the startup one) must not link and backfill twice
+        # A folder update while the folder is being read (e.g. at startup) must not link and backfill twice
         async with self._lock:
             try:
                 await self._sync()
@@ -65,8 +65,10 @@ class ChannelFolder:
     async def _sync(self):
         owner_id = (await self.client.get_me()).id
         if not is_authorized(owner_id, Config.ALLOWED_USERS, Config.ALLOW_ALL_USERS):
+            # Fail closed: the folder's links would keep notifying an owner no longer allowed
             log.warning("Channel folder '%s': the account owner (user_id=%s) is not in ALLOWED_USERS, "
-                        "nothing synced", self._folder_name, owner_id)
+                        "removing the folder's channels", self._folder_name, owner_id)
+            self._unlink_left(owner_id, [])
             return
         with self._session_factory() as session:
             registered = session.query(User).filter_by(user_id=owner_id).first() is not None
@@ -106,7 +108,7 @@ class ChannelFolder:
                    if self._commands.link_channel(owner_id, identifier, title, from_folder=True)]
         self._unlink_left(owner_id, list(channels))
         log.info("Channel folder '%s': %d channels, %d new", self._folder_name, len(channels), len(entered))
-        # Sequential: a first sync of a large folder would otherwise hit FloodWait at once
+        # Sequential: a large folder read for the first time would otherwise hit FloodWait at once
         for identifier in entered:
             await self._commands.backfill_channel(identifier, owner_id)
 

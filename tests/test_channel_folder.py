@@ -116,7 +116,7 @@ async def test_unknown_folder_name_unlinks_nothing(monkeypatch, db_session_facto
     assert "'Offers': the account has no folder with this name" in caplog.text
 
 
-async def test_owner_not_registered_skips_sync(monkeypatch, db_session_factory, caplog):
+async def test_owner_not_registered_links_nothing(monkeypatch, db_session_factory, caplog):
     commands, folder = _setup(monkeypatch, db_session_factory, FakeClient(_folder(1)), register_owner=False)
 
     await folder.sync()
@@ -140,15 +140,16 @@ async def test_channel_added_by_hand_entering_folder_is_not_backfilled_again(mon
     commands.backfill_channel.assert_not_awaited()
 
 
-async def test_owner_not_allowed_skips_sync(monkeypatch, db_session_factory, caplog):
-    commands, folder = _setup(monkeypatch, db_session_factory, FakeClient(_folder(1)), allowed=[OWNER + 1])
+async def test_owner_no_longer_allowed_loses_folder_links_only(monkeypatch, db_session_factory, caplog):
+    commands, folder = _setup(monkeypatch, db_session_factory, FakeClient(_folder(1, 2)))
+    await folder.sync()
+    await commands.join_channel("deals", OWNER)
 
+    monkeypatch.setattr(Config, "ALLOWED_USERS", [OWNER + 1])
     await folder.sync()
 
-    assert await commands.list_channels(OWNER) == []
+    assert await commands.list_channels(OWNER) == ["Deals (deals)"]
     assert "not in ALLOWED_USERS" in caplog.text
-
-
 async def test_channel_added_by_hand_in_other_case_is_one_channel(monkeypatch, db_session_factory):
     client = FakeClient(_folder())
     commands, folder = _setup(monkeypatch, db_session_factory, client)

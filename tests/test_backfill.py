@@ -128,3 +128,29 @@ async def test_backfill_resumes_after_flood_wait(db_session_factory, monkeypatch
     assert found == 2
     assert slept.count(30) == 1  # other sleeps: the notification throttle
     assert calls == [(3, 0), (2, 3)]
+
+
+async def test_backfill_gives_up_after_repeated_flood_waits(db_session_factory, monkeypatch):
+    with db_session_factory() as session:
+        session.add(User(user_id=100))
+        session.flush()
+        session.add(Product(user_id=100, name="iPhone 15"))
+        session.commit()
+
+    async def iter_messages(entity, limit, offset_id=0):
+        raise FloodWaitError(None, capture=30)
+        yield
+
+    client = _fake_client()
+    client.iter_messages = iter_messages
+    slept = []
+
+    async def fake_sleep(seconds):
+        slept.append(seconds)
+
+    monkeypatch.setattr(client_commands.asyncio, "sleep", fake_sleep)
+
+    found = await ClientCommands(client, db_session_factory, MagicMock()).backfill_channel("deals", 100)
+
+    assert found == 0
+    assert slept == [30] * client_commands.BACKFILL_FLOOD_RETRIES
