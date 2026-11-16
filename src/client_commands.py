@@ -30,7 +30,7 @@ class ClientCommands:
     def __init__(self, client: TelegramClient, db_session_factory: sessionmaker, bot_client: TelegramClient = None):
         self.client = client
         self._session_factory = db_session_factory
-        self._recorder = MatchRecorder(bot_client, db_session_factory)
+        self._recorder = MatchRecorder(bot_client, db_session_factory, client)
 
     async def list_channels(self, user_id: int) -> list[str]:
         """Return the list of channels associated with the given user."""

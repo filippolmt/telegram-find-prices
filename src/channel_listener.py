@@ -25,7 +25,7 @@ class ChannelListener:
     ):
         self.client = client
         self._session_factory = db_session_factory
-        self._recorder = MatchRecorder(bot_client, db_session_factory)
+        self._recorder = MatchRecorder(bot_client, db_session_factory, client)
 
     def register(self):
         """Register the handler for new channel messages."""
