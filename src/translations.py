@@ -9,7 +9,7 @@ MESSAGES = {
     "en": {
         # Auth / generic
         "not_authorized": "You are not authorized to use this bot.",
-        "start_first": "Please start the bot first with /start in a private chat.",
+        "users_only": "This bot works only for user accounts, in a private chat.",
         "operation_cancelled": "Operation cancelled.",
         "timed_out": "Timed out. Try again with {command}.",
         "invalid_choice": "Invalid choice. Try again with {command}.",
@@ -104,7 +104,7 @@ MESSAGES = {
     "it": {
         # Auth / generic
         "not_authorized": "Non sei autorizzato ad usare questo bot.",
-        "start_first": "Avvia prima il bot con /start in una chat privata.",
+        "users_only": "Questo bot funziona solo con account utente, in una chat privata.",
         "operation_cancelled": "Operazione annullata.",
         "timed_out": "Tempo scaduto. Riprova con {command}.",
         "invalid_choice": "Scelta non valida. Riprova con {command}.",

@@ -6,7 +6,7 @@ import pytest
 
 from config import parse_allowed_users
 from models import User
-from tests.fakes import chat_event, make_bot, registered_bot, sender_event
+from tests.fakes import chat_event, make_bot, registered_bot
 from translations import t
 
 
@@ -38,25 +38,6 @@ def test_parse_allowed_users_drops_invalid_and_warns(caplog):
 def test_is_authorized(monkeypatch, db_session_factory, allowed, allow_all, user_id, expected):
     bot = make_bot(monkeypatch, db_session_factory, allowed, allow_all)
     assert bot._is_authorized(user_id) is expected
-
-
-async def test_unauthorized_user_is_not_registered(monkeypatch, db_session_factory):
-    bot = make_bot(monkeypatch, db_session_factory, [1], False)
-
-    sender = await bot.register_user_if_not_exists(sender_event(2))
-
-    assert (sender.username, sender.user_id) == ("stranger", 2)
-    with db_session_factory() as session:
-        assert session.query(User).count() == 0
-
-
-async def test_authorized_user_is_registered(monkeypatch, db_session_factory):
-    bot = make_bot(monkeypatch, db_session_factory, [1], False)
-
-    await bot.register_user_if_not_exists(sender_event(1, "owner"))
-
-    with db_session_factory() as session:
-        assert session.query(User).filter_by(user_id=1).one().username == "owner"
 
 
 def _recording_flow():
@@ -146,9 +127,32 @@ async def test_gate_never_registers_a_channel_sender_even_when_all_users_are_all
 
     await bot._gate(flow)(event)
 
+    assert event.replies == [t("users_only", "en")]
     assert calls == []
     with db_session_factory() as session:
         assert session.query(User).count() == 0
+
+
+@pytest.mark.parametrize("command", ["/start", "/watch"])
+async def test_command_from_a_channel_sender_says_the_bot_is_for_users_only(monkeypatch, db_session_factory, command):
+    bot = registered_bot(monkeypatch, db_session_factory)
+    event = chat_event(-1001234567890, username=None)
+
+    await bot.bot_client.dispatch(command, event)
+
+    assert event.replies == [t("users_only", "en")]
+    with db_session_factory() as session:
+        assert session.query(User).count() == 0
+
+
+async def test_stored_username_follows_the_sender_after_changes_and_removal(monkeypatch, db_session_factory):
+    bot = make_bot(monkeypatch, db_session_factory, [1], False)
+    flow, _ = _recording_flow()
+
+    for username in ["owner", "owner_renamed", None]:
+        await bot._gate(flow)(chat_event(1, username=username))
+        with db_session_factory() as session:
+            assert session.query(User).filter_by(user_id=1).one().username == username
 
 
 async def test_registered_command_runs_flow_for_authorized_sender(monkeypatch, db_session_factory):

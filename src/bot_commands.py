@@ -106,54 +106,48 @@ class BotCommands:
     def _is_authorized(self, user_id: int | None) -> bool:
         return is_authorized(user_id, self._allowed_users, self._allow_all)
 
-    async def register_user_if_not_exists(self, event: events.NewMessage.Event) -> Optional[CommandContext]:
-        """Identify the sender and register them if authorized and not yet registered.
-
-        Returns None when the sender is not a user: no id, or a channel's negative id (anonymous admins,
-        linked channels). The username is optional: many accounts have none.
-        """
-        tg_sender = await event.get_sender()
+    @staticmethod
+    async def _identify(event: events.NewMessage.Event) -> Optional[CommandContext]:
+        """The sender as a user, or None when it is not one: no id, or a channel's negative id (anonymous
+        admins, linked channels). The username is optional: many accounts have none."""
         user_id: Optional[int] = getattr(event, "sender_id", None)
         if user_id is None or user_id <= 0:
             return None
-        sender = CommandContext.from_sender(user_id, tg_sender)
+        return CommandContext.from_sender(user_id, await event.get_sender())
 
-        if not self._is_authorized(user_id):
-            # Never persist strangers: this check, not the gate order, keeps them out of the DB
-            return sender
-
+    def _register(self, sender: CommandContext) -> None:
+        """Store an authorized sender, or bring their username and language up to date."""
         with self._session_factory() as session:
-            existing = session.get(User, user_id)
-            if existing is None:
-                session.add(User(id=user_id, user_id=user_id, username=sender.username, lang_code=sender.lang))
-                session.commit()
-            elif existing.lang_code != sender.lang:
-                existing.lang_code = sender.lang
-                session.commit()
+            user = session.get(User, sender.user_id)
+            if user is None:
+                session.add(User(id=sender.user_id, user_id=sender.user_id, username=sender.username, lang_code=sender.lang))
+            else:
+                user.username, user.lang_code = sender.username, sender.lang
+            session.commit()
 
-        return sender
-
-    def _gate(self, flow: CommandFlow, missing_identity_reply: str = "start_first") -> Callable[[events.NewMessage.Event], Awaitable[None]]:
+    def _gate(self, flow: CommandFlow) -> Callable[[events.NewMessage.Event], Awaitable[None]]:
         """Wrap a command flow: resolve, authorize and register the sender, then run the flow with its context."""
 
         async def handler(event) -> None:
-            sender = await self.register_user_if_not_exists(event)
+            sender = await self._identify(event)
             if sender is None:
-                await event.respond(t(missing_identity_reply, DEFAULT_LANGUAGE))
+                await event.respond(t("users_only", DEFAULT_LANGUAGE))
                 return
             if not self._is_authorized(sender.user_id):
+                # Strangers are never written to the DB: rejected before _register
                 await event.respond(t("not_authorized", sender.lang))
                 return
+            self._register(sender)
             await flow(event, sender)
 
         return handler
 
-    def _command(self, name: str, missing_identity_reply: str = "start_first") -> Callable[[CommandFlow], CommandFlow]:
+    def _command(self, name: str) -> Callable[[CommandFlow], CommandFlow]:
         """Register a flow for /name behind the gate."""
 
         def register(flow: CommandFlow) -> CommandFlow:
             pattern = rf"^/{name}{self._addressed_to_me}(?:\s|$)"
-            self.bot_client.on(events.NewMessage(pattern=pattern))(self._gate(flow, missing_identity_reply))
+            self.bot_client.on(events.NewMessage(pattern=pattern))(self._gate(flow))
             return flow
 
         return register
@@ -163,7 +157,7 @@ class BotCommands:
         # Telegram usernames are case-insensitive; a command for another bot matches nothing
         self._addressed_to_me = rf"(?i:@{re.escape(bot_username)})?" if bot_username else ""
 
-        @self._command("start", missing_identity_reply="not_authorized")
+        @self._command("start")
         async def start_command(event, ctx):
 
             log.info("/start from id=%s username=%s first_name=%s", ctx.user_id, ctx.username, ctx.first_name)
