@@ -4,7 +4,6 @@ Listen to monitored channel messages and notify users on product matches.
 
 import logging
 
-from sqlalchemy import func
 from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient, events
 
@@ -14,7 +13,7 @@ from match_recorder import (
     build_message_link,
     message_text,
 )
-from models import Channel, MatchSource
+from models import Channel, MatchSource, identifier_in
 
 log = logging.getLogger(__name__)
 
@@ -54,7 +53,7 @@ class ChannelListener:
                 # Match by username or numeric channel ID; usernames are case-insensitive, older rows hold them as typed
                 possible_ids = [i.lower() for i in (channel_username, channel_id and str(channel_id)) if i]
                 monitored = possible_ids and session.query(Channel.id).filter(
-                    func.lower(Channel.identifier).in_(possible_ids)).first() is not None
+                    identifier_in(Channel.identifier, possible_ids)).first() is not None
                 # The recorder skips notifying paused users
                 products = authorized_products(session) if monitored else []
                 # Detached so the recorder can read them after this session closes.

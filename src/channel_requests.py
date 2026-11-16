@@ -4,11 +4,17 @@ Channel requests: users ask the owner to add a channel to the Channel folder, or
 
 from enum import StrEnum
 
-from sqlalchemy import func
 from sqlalchemy.orm import sessionmaker
 
-from models import ChannelRequest, ChannelRequestAction, ChannelRequester, User
-from translations import DEFAULT_LANGUAGE
+from models import (
+    ChannelInfo,
+    ChannelRequest,
+    ChannelRequestAction,
+    ChannelRequester,
+    User,
+    identifier_in,
+)
+from translations import resolve_lang
 
 
 class Filed(StrEnum):
@@ -24,11 +30,17 @@ class ChannelRequests:
     def __init__(self, db_session_factory: sessionmaker):
         self._session_factory = db_session_factory
 
-    def file(self, user_id: int, action: ChannelRequestAction, identifier: str | None,
-             invite_hash: str | None = None, title: str | None = None) -> tuple[Filed, ChannelRequest]:
-        """File the request, or add the user to the pending one for the same channel."""
+    def file(self, user_id: int, action: ChannelRequestAction, channel: ChannelInfo,
+             invite_hash: str | None = None) -> tuple[Filed, ChannelRequest]:
+        """File the request, or add the user to the pending one for the same channel.
+
+        shortcut: an invite to a channel the account is not in has no identifier until joined (CheckChatInvite gives
+        none), so it is told apart from a request for the same channel by @username or another invite; approving
+        one answers the others naming the channel. Revisit if duplicate invite requests show up in /requests.
+        """
+        identifier, title = channel
         with self._session_factory() as session:
-            same_channel = (func.lower(ChannelRequest.identifier) == identifier.lower() if identifier
+            same_channel = (identifier_in(ChannelRequest.identifier, [identifier]) if identifier
                             else ChannelRequest.invite_hash == invite_hash)
             request = session.query(ChannelRequest).filter(same_channel).first()
             if request is None:
@@ -70,13 +82,17 @@ class ChannelRequests:
     def requesters(self, request_id: int) -> list[tuple[int, str | None]]:
         """Who waits for the request, as (user_id, username)."""
         with self._session_factory() as session:
-            return (
-                session.query(User.user_id, User.username)
-                .join(ChannelRequester, ChannelRequester.user_id == User.user_id)
-                .filter(ChannelRequester.request_id == request_id)
-                .order_by(User.user_id)
-                .all()
-            )
+            return [(u.user_id, u.username) for u in self._requesters(session, request_id)]
+
+    @staticmethod
+    def _requesters(session, request_id: int) -> list[User]:
+        return (
+            session.query(User)
+            .join(ChannelRequester, ChannelRequester.user_id == User.user_id)
+            .filter(ChannelRequester.request_id == request_id)
+            .order_by(User.user_id)
+            .all()
+        )
 
     def close(self, request_id: int) -> list[tuple[int, str]] | None:
         """Delete a decided request, invite hash included; return its requesters as (user_id, language).
@@ -84,14 +100,9 @@ class ChannelRequests:
         None if it was already decided.
         """
         with self._session_factory() as session:
-            requesters = (
-                session.query(User.user_id, User.lang_code)
-                .join(ChannelRequester, ChannelRequester.user_id == User.user_id)
-                .filter(ChannelRequester.request_id == request_id)
-                .all()
-            )
+            requesters = [(u.user_id, resolve_lang(u.lang_code)) for u in self._requesters(session, request_id)]
             deleted = session.query(ChannelRequest).filter_by(id=request_id).delete()
             session.commit()
             if not deleted:
                 return None
-            return [(uid, lang or DEFAULT_LANGUAGE) for uid, lang in requesters]
+            return requesters

@@ -20,6 +20,7 @@ from telethon.tl.types import (
 )
 
 from client_commands import ClientCommands, peer_key
+from models import channel_label
 
 log = logging.getLogger(__name__)
 
@@ -39,8 +40,8 @@ class ChannelFolder:
     def __init__(self, client: TelegramClient, client_commands: ClientCommands, folder_name: str):
         self.client = client
         self._commands = client_commands
-        # Awaited with the channels a sync found new in the folder
-        self.on_entered: Callable[[list[str]], Awaitable[None]] | None = None
+        # Awaited with the channels a sync found entering and leaving the folder, as {identifier: label}
+        self.on_changed: Callable[[dict[str, str], dict[str, str]], Awaitable[None]] | None = None
         self.folder_name = folder_name
         self._lock = asyncio.Lock()
 
@@ -105,6 +106,11 @@ class ChannelFolder:
         await self.client(UpdateDialogFilterRequest(id=folder.id, filter=folder))
 
     async def _sync(self) -> int | None:
+        if await self._commands.owner_id() is None:
+            # The folder is the owner's choice: without an owner, the monitored channels stay as they are
+            log.warning("Channel folder '%s': nobody is owner (account not in ALLOWED_USERS, or unreachable), "
+                        "nothing changed", self.folder_name)
+            return None
         folder = await self._read()
         if folder is None:
             return None
@@ -130,10 +136,10 @@ class ChannelFolder:
 
         entered = [identifier for identifier, title in channels.items() if self._commands.monitor(identifier, title)]
         # The account stays in a channel taken out of the folder by hand: only the bot's removals leave
-        self._commands.monitor_exactly(list(channels))
-        log.info("Channel folder '%s': %d channels, %d new", self.folder_name, len(channels), len(entered))
-        if entered and self.on_entered:
-            await self.on_entered(entered)
+        left = self._commands.keep_monitoring_only(list(channels))
+        log.info("Channel folder '%s': %d channels, %d new, %d gone", self.folder_name, len(channels), len(entered), len(left))
+        if (entered or left) and self.on_changed:
+            await self.on_changed({i: channel_label(i, channels[i]) for i in entered}, left)
         # Sequential: a large folder read for the first time would otherwise hit FloodWait at once
         for identifier in entered:
             await self._commands.backfill_channel(identifier)

@@ -4,15 +4,18 @@ Database models (SQLAlchemy ORM).
 
 from datetime import datetime, timezone
 from enum import StrEnum
+from typing import NamedTuple
 
 from sqlalchemy import (
     Boolean,
     Column,
+    ColumnElement,
     Float,
     ForeignKey,
     Integer,
     String,
     UniqueConstraint,
+    func,
 )
 
 from database import Base
@@ -42,9 +45,26 @@ class Channel(Base):
                       default=lambda: datetime.now(timezone.utc).isoformat())
 
 
+def identifier_in(column, identifiers: list[str]) -> ColumnElement[bool]:
+    """SQL condition: the column holds one of these channel identifiers. Usernames are case-insensitive on
+    Telegram, and older rows hold them as the user typed them."""
+    return func.lower(column).in_([i.lower() for i in identifiers])
+
+
 def channel_label(identifier: str, title: str | None) -> str:
     """How a channel is shown to users: 'title (identifier)', or the identifier alone."""
     return f"{title} ({identifier})" if title else identifier
+
+
+class ChannelInfo(NamedTuple):
+    """A channel as Channel.identifier stores it, and its title; identifier None for an invite to a channel the
+    account is not in."""
+    identifier: str | None
+    title: str | None
+
+    @property
+    def label(self) -> str:
+        return channel_label(self.identifier, self.title)
 
 
 class ChannelRequest(Base):

@@ -5,7 +5,7 @@ Telegram user client commands (join/leave channels, backfill).
 import asyncio
 import logging
 
-from sqlalchemy import func
+from sqlalchemy import not_
 from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError, RPCError, UserAlreadyParticipantError
@@ -22,7 +22,7 @@ from match_recorder import (
     build_message_link,
     message_text,
 )
-from models import Channel, MatchSource, channel_label
+from models import Channel, ChannelInfo, MatchSource, channel_label, identifier_in
 
 log = logging.getLogger(__name__)
 
@@ -54,16 +54,16 @@ class ClientCommands:
             return None
         return owner if owner in Config.ALLOWED_USERS else None
 
+    def monitored_channels(self) -> list[ChannelInfo]:
+        with self._session_factory() as session:
+            return [ChannelInfo(c.identifier, c.title) for c in session.query(Channel).order_by(Channel.id)]
+
     def list_channels(self) -> list[str]:
         """Labels of the monitored channels: 'title (identifier)', or the identifier alone."""
-        with self._session_factory() as session:
-            return [channel_label(c.identifier, c.title) for c in session.query(Channel).order_by(Channel.id)]
+        return [c.label for c in self.monitored_channels()]
 
-    async def join_channel(self, channel_identifier: str, invite_hash: str = None) -> tuple[str, str | None] | None:
-        """Join a channel (by username or invite hash) without monitoring it.
-
-        Returns (identifier as Channel.identifier stores it, title), None if Telegram refused.
-        """
+    async def join_channel(self, channel_identifier: str, invite_hash: str = None) -> ChannelInfo | None:
+        """Join a channel (by username or invite hash) without monitoring it; None if Telegram refused."""
         db_identifier = channel_identifier
         channel_title = None
 
@@ -91,10 +91,10 @@ class ClientCommands:
             target = channel_identifier or f"invite {invite_hash[:4]}…"
             log.error("JoinChannel error for '%s': %s", target, e)
             return None
-        return db_identifier, channel_title
+        return ChannelInfo(db_identifier, channel_title)
 
-    async def check_invite(self, invite_hash: str) -> tuple[str | None, str | None] | None:
-        """The channel behind an invite, without joining it: (identifier if the account is in it, title).
+    async def check_invite(self, invite_hash: str) -> ChannelInfo | None:
+        """The channel behind an invite, without joining it: its identifier only if the account is in it.
 
         None if Telegram refused the invite (invalid, expired).
         """
@@ -105,23 +105,21 @@ class ClientCommands:
             return None
         chat = getattr(result, "chat", None)
         if chat is None:
-            return None, getattr(result, "title", None)
-        return getattr(chat, "username", None) or str(chat.id), getattr(chat, "title", None)
+            return ChannelInfo(None, getattr(result, "title", None))
+        return ChannelInfo(getattr(chat, "username", None) or str(chat.id), getattr(chat, "title", None))
 
-    def find_channel(self, identifier: str) -> Channel | None:
-        """The monitored channel with this identifier, detached."""
+    def find_channel(self, identifier: str) -> ChannelInfo | None:
+        """The monitored channel with this identifier."""
         with self._session_factory() as session:
             channel = self._find(session, identifier)
-            if channel:
-                session.expunge(channel)
-            return channel
+            return channel and ChannelInfo(channel.identifier, channel.title)
 
     @staticmethod
     def _find(session, identifier: str) -> Channel | None:
         # Usernames are case-insensitive on Telegram
         return (
             session.query(Channel)
-            .filter(func.lower(Channel.identifier) == identifier.lower())
+            .filter(identifier_in(Channel.identifier, [identifier]))
             .order_by(Channel.id)  # rows saved before this check may differ only in case: take the oldest
             .first()
         )
@@ -140,17 +138,19 @@ class ClientCommands:
     def unmonitor(self, identifier: str) -> bool:
         """Stop monitoring a channel, the account stays in it; return whether it was monitored."""
         with self._session_factory() as session:
-            deleted = session.query(Channel).filter(func.lower(Channel.identifier) == identifier.lower()).delete()
+            deleted = session.query(Channel).filter(identifier_in(Channel.identifier, [identifier])).delete()
             session.commit()
             return deleted > 0
 
-    def monitor_exactly(self, identifiers: list[str]) -> None:
-        """Stop monitoring every channel but these."""
+    def keep_monitoring_only(self, identifiers: list[str]) -> dict[str, str]:
+        """Stop monitoring every channel but these; return the ones stopped, as {identifier: label}."""
         with self._session_factory() as session:
-            session.query(Channel).filter(
-                func.lower(Channel.identifier).not_in([i.lower() for i in identifiers])
-            ).delete(synchronize_session=False)
+            gone = session.query(Channel).filter(not_(identifier_in(Channel.identifier, identifiers))).all()
+            labels = {c.identifier: channel_label(c.identifier, c.title) for c in gone}
+            for channel in gone:
+                session.delete(channel)
             session.commit()
+            return labels
 
     async def backfill_channel(self, channel_identifier: str, limit: int = 200) -> int:
         """Scan the last N messages of a channel for every authorized user's products.

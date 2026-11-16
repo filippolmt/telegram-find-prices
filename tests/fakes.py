@@ -2,6 +2,7 @@
 In-memory stand-ins for Telethon events and the bot client, shared by bot command tests.
 """
 
+import asyncio
 import copy
 from contextlib import asynccontextmanager
 from types import SimpleNamespace
@@ -68,6 +69,7 @@ class FakeUserClient:
         return SimpleNamespace(id=self.owner, user_id=self.owner)
 
     async def __call__(self, request):
+        await asyncio.sleep(0)  # a network round trip: other handlers run meanwhile
         self.requests.append(request)
         if error := self.errors.get(type(request)):
             raise error

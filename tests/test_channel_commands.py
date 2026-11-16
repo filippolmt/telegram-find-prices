@@ -3,6 +3,7 @@ Monitored channels are shared and chosen by the owner: the owner's channel comma
 and the owner's Approve/Reject buttons, through the registered commands and a fake owner's account.
 """
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -214,7 +215,7 @@ async def test_owner_approves_add_request(setup):
     assert event.replies[0] == t("channel_added", "en", channel="Deals (deals)")
     assert bot.bot_client.sent == [(uid, t("request_approved_add", "en", channel="Deals (deals)"), None)
                                    for uid in (FRIEND, OTHER)]
-    assert bot.requests.pending() == []
+    assert bot.channel_requests.pending() == []
 
 
 async def test_button_pressed_by_another_account_is_refused(setup, caplog):
@@ -226,7 +227,7 @@ async def test_button_pressed_by_another_account_is_refused(setup, caplog):
 
     assert event.answers == [t("owner_only_button", "en")]
     assert client.joined == set()
-    assert [r.id for r in bot.requests.pending()] == [1]
+    assert [r.id for r in bot.channel_requests.pending()] == [1]
     assert "pressed by user_id=200, not the owner" in caplog.text
 
 
@@ -240,7 +241,7 @@ async def test_owner_rejects_with_a_reason_the_requesters_get(setup):
     assert event.replies == [t("reject_reason_prompt", "en", channel="deals"), t("request_rejected", "en", channel="deals")]
     assert bot.bot_client.sent == [(FRIEND, t("request_rejected_requester", "en", channel="deals", reason="Too many ads"), None)]
     assert client.joined == set()
-    assert bot.requests.pending() == []
+    assert bot.channel_requests.pending() == []
 
 
 async def test_reject_cancelled_or_without_reason_leaves_the_request_pending(setup):
@@ -254,7 +255,7 @@ async def test_reject_cancelled_or_without_reason_leaves_the_request_pending(set
     assert cancelled.replies[-1] == t("operation_cancelled", "en")
     assert empty.replies[-1] == t("reject_reason_required", "en")
     assert bot.bot_client.sent == []
-    assert [r.id for r in bot.requests.pending()] == [1]
+    assert [r.id for r in bot.channel_requests.pending()] == [1]
 
 
 async def test_approval_failing_on_the_folder_leaves_the_request_pending(setup):
@@ -269,7 +270,7 @@ async def test_approval_failing_on_the_folder_leaves_the_request_pending(setup):
     assert client.joined == {DEALS.id}  # reported to the owner, not left silently
     assert bot.client_commands.list_channels() == []
     assert bot.bot_client.sent == []
-    assert [r.id for r in bot.requests.pending()] == [1]
+    assert [r.id for r in bot.channel_requests.pending()] == [1]
 
 
 async def test_owner_approves_remove_request(setup):
@@ -348,7 +349,7 @@ async def test_owner_adding_a_requested_channel_answers_the_pending_request(setu
     await bot.bot_client.dispatch("/add_channel @deals", conversation_event([], user_id=OWNER))
 
     assert bot.bot_client.sent == [(FRIEND, t("request_approved_add", "en", channel="Deals (deals)"), None)]
-    assert bot.requests.pending() == []
+    assert bot.channel_requests.pending() == []
 
 
 async def test_requested_channel_entering_the_folder_by_hand_answers_the_pending_request(setup):
@@ -359,7 +360,7 @@ async def test_requested_channel_entering_the_folder_by_hand_answers_the_pending
     await bot.channel_folder.sync()
 
     assert bot.bot_client.sent == [(FRIEND, t("request_approved_add", "en", channel="Deals (deals)"), None)]
-    assert bot.requests.pending() == []
+    assert bot.channel_requests.pending() == []
 
 
 async def test_approval_failing_on_any_folder_error_tells_the_owner(setup):
@@ -375,7 +376,7 @@ async def test_approval_failing_on_any_folder_error_tells_the_owner(setup):
 
     assert event.replies == [t("folder_add_failed", "en", channel="Deals (deals)", folder=FOLDER),
                              t("request_still_pending", "en")]
-    assert [r.id for r in bot.requests.pending()] == [1]
+    assert [r.id for r in bot.channel_requests.pending()] == [1]
 
 
 async def test_account_is_not_owner_when_only_allow_all_users_lets_it_in(setup, monkeypatch):
@@ -395,7 +396,7 @@ async def test_reject_of_a_request_decided_meanwhile_is_not_reported_as_rejected
     await _request(bot, "/add_channel @deals", FRIEND)
 
     def approved_while_typing():
-        bot.requests.close(1)
+        bot.channel_requests.close(1)
         return "Too many ads"
 
     event = button_event("reject:1", answers=[approved_while_typing])
@@ -414,4 +415,67 @@ async def test_invite_and_username_requests_for_one_channel_are_both_answered(se
     await bot.bot_client.press(button_event("approve:1"))
 
     assert sorted(uid for uid, _, _ in bot.bot_client.sent) == [FRIEND, OTHER]
-    assert bot.requests.pending() == []
+    assert bot.channel_requests.pending() == []
+
+
+async def test_channel_taken_out_of_the_folder_by_hand_answers_its_pending_remove_request(setup):
+    bot, client = setup(folder(1, 2))
+    await bot.channel_folder.sync()
+    client.joined = {DEALS.id, TECH.id}
+    await _request(bot, "/remove_channel", FRIEND, answers=["1"])
+
+    client.folders = [folder(2)]  # the owner took it out from Telegram, keeping the account in it
+    await bot.channel_folder.sync()
+
+    assert bot.bot_client.sent == [(FRIEND, t("request_approved_remove", "en", channel="Deals (deals)"), None)]
+    assert bot.channel_requests.pending() == []
+    assert client.joined == {DEALS.id, TECH.id}
+
+
+async def test_owner_removing_a_requested_channel_answers_the_pending_remove_request(setup):
+    bot, _ = setup(folder(1, 2))
+    await bot.channel_folder.sync()
+    await _request(bot, "/remove_channel", FRIEND, answers=["1"])
+
+    await bot.bot_client.dispatch("/remove_channel", conversation_event(["1"], user_id=OWNER))
+
+    assert bot.bot_client.sent == [(FRIEND, t("request_approved_remove", "en", channel="Deals (deals)"), None)]
+    assert bot.channel_requests.pending() == []
+
+
+async def test_folder_is_not_read_while_nobody_is_owner(setup, monkeypatch):
+    bot, client = setup(folder(1))
+    await bot.channel_folder.sync()
+    monkeypatch.setattr(Config, "ALLOWED_USERS", [FRIEND])  # the account is no longer listed
+
+    client.folders = [folder(2)]
+    await bot.channel_folder.sync()
+
+    assert bot.client_commands.list_channels() == ["Deals (deals)"]
+
+
+async def test_reject_is_refused_if_the_account_is_no_longer_owner_when_the_reason_arrives(setup, monkeypatch):
+    bot, _ = setup(folder(2))
+    await _request(bot, "/add_channel @deals", FRIEND)
+
+    def owner_removed_while_typing():
+        monkeypatch.setattr(Config, "ALLOWED_USERS", [FRIEND, OTHER])
+        return "Too many ads"
+
+    event = button_event("reject:1", answers=[owner_removed_while_typing])
+    await bot.bot_client.press(event)
+
+    assert event.replies[-1] == t("owner_only_button", "en")
+    assert bot.bot_client.sent == []
+    assert [r.id for r in bot.channel_requests.pending()] == [1]
+
+
+async def test_concurrent_approvals_of_one_request_act_once(setup):
+    bot, client = setup(folder(2))
+    await _request(bot, "/add_channel @deals", FRIEND)
+    first, second = button_event("approve:1"), button_event("approve:1")
+
+    await asyncio.gather(bot.bot_client.press(first), bot.bot_client.press(second))
+
+    assert sum(type(r).__name__ == "JoinChannelRequest" for r in client.requests) == 1
+    assert (first.replies + second.replies).count(t("request_already_decided", "en")) == 1

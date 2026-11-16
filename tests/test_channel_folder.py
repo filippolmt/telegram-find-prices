@@ -24,6 +24,7 @@ PRIVATE = channel(2, None, "Private deals")
 
 
 def _setup(db_session_factory, client):
+    Config.ALLOWED_USERS = [OWNER, OWNER + 1]  # the account is owner; restored by the every_user_allowed fixture
     client.channels = {c.id: c for c in (DEALS, PRIVATE)}
     commands = ClientCommands(client, db_session_factory, MagicMock())
     commands.backfill_channel = AsyncMock(return_value=0)
@@ -105,7 +106,6 @@ async def test_inaccessible_channel_is_skipped_and_no_longer_monitored(db_sessio
 
 
 def _bot_with_folder(db_session_factory, client):
-    Config.ALLOWED_USERS = [OWNER, OWNER + 1]  # restored by the every_user_allowed fixture
     commands, channel_folder = _setup(db_session_factory, client)
     bot = BotCommands(FakeBotClient(), commands, db_session_factory, channel_folder=channel_folder)
     bot.register_commands()

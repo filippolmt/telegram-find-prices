@@ -110,3 +110,14 @@ class TestCompleteness:
 
     def test_default_language_is_supported(self):
         assert DEFAULT_LANGUAGE in SUPPORTED_LANGUAGES
+
+
+def test_every_channel_request_action_has_its_messages():
+    # bot_commands builds these keys from the action's value
+    from models import ChannelRequestAction
+    from translations import MESSAGES
+
+    missing = [(lang, f"{prefix}_{action}") for lang in MESSAGES for action in ChannelRequestAction
+               for prefix in ("request_owner", "pending_line", "request_approved")
+               if f"{prefix}_{action}" not in MESSAGES[lang]]
+    assert missing == []
