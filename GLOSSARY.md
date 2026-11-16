@@ -13,11 +13,11 @@ The link to the matched product that a match notification carries: the one on th
 _Avoid_: Product link, deal link
 
 **Realtime**:
-The source of matches found in new messages as they arrive in a followed channel.
+The source of matches found in new messages as they arrive in a monitored channel.
 _Avoid_: Live, listener
 
 **Backfill**:
-The one-off scan of a channel's recent messages when the user adds that channel, and the source of the matches it finds.
+The one-off scan of a channel's recent messages, for every user's products, when it becomes monitored, and the source of the matches it finds.
 _Avoid_: History scan, import
 
 **Paused**:

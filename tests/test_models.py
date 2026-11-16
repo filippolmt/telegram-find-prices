@@ -5,7 +5,7 @@ Tests for database models.
 import pytest
 from sqlalchemy.exc import IntegrityError
 
-from models import Channel, PriceHistory, Product, User, UserChannel
+from models import Channel, PriceHistory, Product, User
 
 
 def test_create_user(db_session):
@@ -27,21 +27,6 @@ def test_create_channel(db_session):
     result = db_session.query(Channel).filter_by(identifier="test_channel").one()
     assert result.identifier == "test_channel"
     assert result.added_at is not None
-
-
-def test_user_channel_association(db_session):
-    user = User(id=1, user_id=100, username="pippo")
-    channel = Channel(identifier="offerte")
-    db_session.add_all([user, channel])
-    db_session.flush()
-
-    link = UserChannel(user_id=user.user_id, channel_id=channel.id)
-    db_session.add(link)
-    db_session.commit()
-
-    result = db_session.query(UserChannel).filter_by(user_id=100).first()
-    assert result is not None
-    assert result.channel_id == channel.id
 
 
 def test_user_unique_constraint(db_session):
@@ -254,44 +239,6 @@ def test_unwatching_product_removes_its_matches(db_session):
     db_session.commit()
 
     assert db_session.query(PriceHistory).count() == 0
-
-
-def test_remove_user_channel_keeps_channel(db_session):
-    """Removing a user-channel link does not delete the channel itself."""
-    user = User(id=1, user_id=100, username="pippo")
-    channel = Channel(identifier="offerte")
-    db_session.add_all([user, channel])
-    db_session.flush()
-
-    link = UserChannel(user_id=100, channel_id=channel.id)
-    db_session.add(link)
-    db_session.commit()
-
-    db_session.delete(link)
-    db_session.commit()
-
-    assert db_session.query(UserChannel).filter_by(user_id=100).first() is None
-    assert db_session.query(Channel).filter_by(identifier="offerte").one() is not None
-
-
-def test_remove_user_channel_other_users_unaffected(db_session):
-    """Removing one user's channel link doesn't affect other users."""
-    user1 = User(id=1, user_id=100, username="pippo")
-    user2 = User(id=2, user_id=200, username="pluto")
-    channel = Channel(identifier="offerte")
-    db_session.add_all([user1, user2, channel])
-    db_session.flush()
-
-    db_session.add(UserChannel(user_id=100, channel_id=channel.id))
-    db_session.add(UserChannel(user_id=200, channel_id=channel.id))
-    db_session.commit()
-
-    link = db_session.query(UserChannel).filter_by(user_id=100).first()
-    db_session.delete(link)
-    db_session.commit()
-
-    assert db_session.query(UserChannel).filter_by(user_id=100).first() is None
-    assert db_session.query(UserChannel).filter_by(user_id=200).first() is not None
 
 
 def test_user_lang_code_default(db_session):

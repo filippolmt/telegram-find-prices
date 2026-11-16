@@ -141,4 +141,4 @@ async def test_watch_addressed_to_this_bot_by_username_takes_the_link(monkeypatc
 def test_watch_addressed_to_another_bot_is_not_handled(monkeypatch, db_session_factory):
     bot = registered_bot(monkeypatch, db_session_factory, bot_username="find_bot")
 
-    assert [h for b, h in bot.bot_client.handlers if b.pattern("/watch@other_bot x")] == []
+    assert [h for b, h in bot.bot_client.handlers if getattr(b, "pattern", None) and b.pattern("/watch@other_bot x")] == []

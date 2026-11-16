@@ -69,7 +69,7 @@ async def main():
     bot_client = create_client(bot_session_name, api_id, api_hash)
     client = create_client(client_session_name, api_id, api_hash, session_string=cf.CLIENT_SESSION_STRING)
     client_commands = ClientCommands(client, SessionLocal, bot_client)
-    channel_folder = ChannelFolder(client, client_commands, SessionLocal, cf.CHANNEL_FOLDER) if cf.CHANNEL_FOLDER else None
+    channel_folder = ChannelFolder(client, client_commands, cf.CHANNEL_FOLDER) if cf.CHANNEL_FOLDER else None
     bot_commands = BotCommands(bot_client, client_commands, SessionLocal, channel_folder)
 
     try:

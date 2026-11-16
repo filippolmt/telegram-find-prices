@@ -16,7 +16,7 @@ MESSAGES = {
         "number_out_of_range": "Number out of range. Try again with {command}.",
 
         # /start
-        "welcome": "Hi {name}, welcome! Use /add_channel to add a channel to monitor and /watch to follow a product, also in one message: /watch <name or Amazon link>.",
+        "welcome": "Hi {name}, welcome! Use /watch to follow a product, also in one message: /watch <name or Amazon link>. /list_channels shows the channels monitored for everyone.",
         "folder_channels_monitored": "Channels monitored from your Telegram folder «{folder}»: {count}. Channels you add to it or remove from it follow within 10 minutes.",
 
         # /add_channel
@@ -28,8 +28,10 @@ MESSAGES = {
         "backfill_no_matches": "Backfill complete: no matches found.",
 
         # /list_channels
-        "no_channels": "You have no channels added.",
-        "your_channels": "Your channels:\n{channels}",
+        "no_channels": "No channels are monitored.",
+        "monitored_channels": "Monitored channels:\n{channels}",
+        "your_pending_requests": "\n\nYour requests waiting for the owner (+ add, − remove):\n{requests}",
+        "no_requests": "No channel requests are pending.",
 
         # /watch
         "watch_ask_product": "What product do you want to monitor? Type its name or send an Amazon product link. (type /cancel to abort)",
@@ -68,7 +70,7 @@ MESSAGES = {
         # /stats
         "stats_header": "Your stats:",
         "stats_products": "  Monitored products: {count}",
-        "stats_channels": "  Channels: {count}",
+        "stats_channels": "  Monitored channels: {count}",
         "stats_matches": "  Total matches: {count}",
         "stats_top_product": "  Top product: {name} ({count} matches)",
         "stats_top_channel": "  Top channel: {name} ({count} matches)",
@@ -87,14 +89,37 @@ MESSAGES = {
         "notify_backfill_price_line": "{price:.2f} (target: {target:.2f})\n\n",
 
         # join/leave channel
-        "join_channel_success": "Joined channel: {channel}",
+        "channel_added": "Channel monitored: {channel}",
+        "channel_already_monitored": "Already monitored: {channel}",
+        "request_sent": "Request sent to the bot owner: {channel}. You will get their answer here.",
+        "request_already_pending": "You already asked for {channel}: the request waits for the owner.",
+        "request_other_pending": "A request about {channel} already waits for the owner.",
+        "request_owner_add": "{requester} asks to monitor {channel}.",
+        "request_owner_remove": "{requester} asks to stop monitoring {channel}. Approving makes your account leave the channel.",
+        "owner_only_button": "Only the bot owner decides channel requests.",
+        "request_already_decided": "This request was already decided.",
+        "request_still_pending": "The request is still pending.",
+        "request_approved_add": "Your request was approved: {channel} is now monitored.",
+        "request_approved_remove": "Your request was approved: {channel} is no longer monitored.",
+        "reject_reason_prompt": "Why do you reject the request for {channel}? The requesters will read it. /cancel to decide later.",
+        "reject_reason_required": "A reason is required: the request is still pending.",
+        "request_rejected": "Request rejected: {channel}",
+        "request_rejected_requester": "Your request for {channel} was rejected: {reason}",
+        "requester_username": "@{name}",
+        "invite_label": "t.me/+{hash}…",
+        "pending_line_add": "+ {channel}",
+        "pending_line_remove": "− {channel}",
+        "approve": "Approve",
+        "reject": "Reject",
+        "channels_owner_only": "Only the bot owner chooses the monitored channels.",
+        "folder_add_failed": "Your account joined {channel} but could not add it to the folder «{folder}» (full, or missing?): the channel is not monitored.",
         "join_channel_failed": "Failed to join channel. Please check the link.",
-        "leave_channel_success": "Left channel: {channel}",
-        "leave_channel_failed": "Error leaving channel. Please try again later.",
 
         # /remove_channel
         "remove_channel_prompt": "Which channel do you want to remove? Enter the number:\n{items}\n\n/cancel to abort",
-        "remove_channel_removed": "Channel removed: {channel}",
+        "channel_removed": "Channel no longer monitored, your account left it: {channel}",
+        "channel_removed_not_left": "Channel no longer monitored, but your account could not leave it: {channel}",
+        "folder_remove_failed": "Could not take {channel} out of the folder «{folder}» (missing?): it is still monitored.",
 
         # Daily summary
         "summary_header": "Daily summary ({count} matches):",
@@ -112,7 +137,7 @@ MESSAGES = {
         "number_out_of_range": "Numero fuori intervallo. Riprova con {command}.",
 
         # /start
-        "welcome": "Ciao {name}, benvenuto! Usa /add_channel per aggiungere un canale da monitorare e /watch per seguire un prodotto, anche in un solo messaggio: /watch <nome o link Amazon>.",
+        "welcome": "Ciao {name}, benvenuto! Usa /watch per seguire un prodotto, anche in un solo messaggio: /watch <nome o link Amazon>. /list_channels mostra i canali monitorati per tutti.",
         "folder_channels_monitored": "Canali monitorati dal tuo folder Telegram «{folder}»: {count}. I canali che aggiungi o togli dal folder vengono aggiornati entro 10 minuti.",
 
         # /add_channel
@@ -124,8 +149,10 @@ MESSAGES = {
         "backfill_no_matches": "Scansione completata: nessuna corrispondenza trovata.",
 
         # /list_channels
-        "no_channels": "Non hai canali aggiunti.",
-        "your_channels": "I tuoi canali:\n{channels}",
+        "no_channels": "Nessun canale è monitorato.",
+        "monitored_channels": "Canali monitorati:\n{channels}",
+        "your_pending_requests": "\n\nLe tue richieste in attesa del proprietario (+ aggiungi, − togli):\n{requests}",
+        "no_requests": "Nessuna richiesta sui canali in attesa.",
 
         # /watch
         "watch_ask_product": "Quale prodotto vuoi monitorare? Scrivi il nome o invia il link di un prodotto Amazon. (scrivi /annulla per annullare)",
@@ -164,7 +191,7 @@ MESSAGES = {
         # /stats
         "stats_header": "Le tue statistiche:",
         "stats_products": "  Prodotti monitorati: {count}",
-        "stats_channels": "  Canali: {count}",
+        "stats_channels": "  Canali monitorati: {count}",
         "stats_matches": "  Corrispondenze totali: {count}",
         "stats_top_product": "  Prodotto top: {name} ({count} corrispondenze)",
         "stats_top_channel": "  Canale top: {name} ({count} corrispondenze)",
@@ -183,14 +210,37 @@ MESSAGES = {
         "notify_backfill_price_line": "{price:.2f} (obiettivo: {target:.2f})\n\n",
 
         # join/leave channel
-        "join_channel_success": "Canale aggiunto: {channel}",
+        "channel_added": "Canale monitorato: {channel}",
+        "channel_already_monitored": "Già monitorato: {channel}",
+        "request_sent": "Richiesta inviata al proprietario del bot: {channel}. Riceverai qui la sua risposta.",
+        "request_already_pending": "Hai già chiesto {channel}: la richiesta attende il proprietario.",
+        "request_other_pending": "Una richiesta su {channel} attende già il proprietario.",
+        "request_owner_add": "{requester} chiede di monitorare {channel}.",
+        "request_owner_remove": "{requester} chiede di non monitorare più {channel}. Approvando, il tuo account uscirà dal canale.",
+        "owner_only_button": "Solo il proprietario del bot decide le richieste sui canali.",
+        "request_already_decided": "Questa richiesta è già stata decisa.",
+        "request_still_pending": "La richiesta resta in attesa.",
+        "request_approved_add": "La tua richiesta è stata approvata: {channel} ora è monitorato.",
+        "request_approved_remove": "La tua richiesta è stata approvata: {channel} non è più monitorato.",
+        "reject_reason_prompt": "Perché rifiuti la richiesta per {channel}? Chi l'ha fatta leggerà il motivo. /annulla per decidere più tardi.",
+        "reject_reason_required": "Il motivo è obbligatorio: la richiesta resta in attesa.",
+        "request_rejected": "Richiesta rifiutata: {channel}",
+        "request_rejected_requester": "La tua richiesta per {channel} è stata rifiutata: {reason}",
+        "requester_username": "@{name}",
+        "invite_label": "t.me/+{hash}…",
+        "pending_line_add": "+ {channel}",
+        "pending_line_remove": "− {channel}",
+        "approve": "Approva",
+        "reject": "Rifiuta",
+        "channels_owner_only": "Solo il proprietario del bot sceglie i canali monitorati.",
+        "folder_add_failed": "Il tuo account è entrato in {channel} ma non è riuscito ad aggiungerlo al folder «{folder}» (pieno, o mancante?): il canale non è monitorato.",
         "join_channel_failed": "Impossibile unirsi al canale. Controlla il link.",
-        "leave_channel_success": "Canale abbandonato: {channel}",
-        "leave_channel_failed": "Errore nell'abbandonare il canale. Riprova pi\u00f9 tardi.",
 
         # /remove_channel
         "remove_channel_prompt": "Quale canale vuoi rimuovere? Inserisci il numero:\n{items}\n\n/annulla per annullare",
-        "remove_channel_removed": "Canale rimosso: {channel}",
+        "channel_removed": "Canale non più monitorato, il tuo account ne è uscito: {channel}",
+        "channel_removed_not_left": "Canale non più monitorato, ma il tuo account non è riuscito a uscirne: {channel}",
+        "folder_remove_failed": "Impossibile togliere {channel} dal folder «{folder}» (mancante?): è ancora monitorato.",
 
         # Daily summary
         "summary_header": "Riepilogo giornaliero ({count} corrispondenze):",

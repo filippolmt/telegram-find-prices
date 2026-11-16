@@ -71,12 +71,14 @@ def run_migrations():
                 conn.execute(text("ALTER TABLE channels ADD COLUMN title VARCHAR"))
                 log.info("Migration: added column channels.title")
 
-        # user_channels.from_folder
+        # user_channels: monitored channels became shared (#93). A channel no existing user linked was no longer monitored.
         if "user_channels" in inspector.get_table_names():
-            cols = [c["name"] for c in inspector.get_columns("user_channels")]
-            if "from_folder" not in cols:
-                conn.execute(text("ALTER TABLE user_channels ADD COLUMN from_folder BOOLEAN NOT NULL DEFAULT 0"))
-                log.info("Migration: added column user_channels.from_folder")
+            removed = conn.execute(text(
+                "DELETE FROM channels WHERE id NOT IN (SELECT channel_id FROM user_channels "
+                "WHERE user_id IN (SELECT user_id FROM users))"
+            )).rowcount
+            conn.execute(text("DROP TABLE user_channels"))
+            log.info("Migration: dropped user_channels, removed %d channels no user had", removed)
 
         # Rows with dangling references, left before foreign keys were enforced.
         # One pass suffices: every foreign key cascades, so deleting a row cannot orphan another.

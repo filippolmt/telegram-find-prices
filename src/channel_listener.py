@@ -8,8 +8,13 @@ from sqlalchemy import func
 from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient, events
 
-from match_recorder import MatchRecorder, build_message_link, message_text
-from models import Channel, MatchSource, Product, UserChannel
+from match_recorder import (
+    MatchRecorder,
+    authorized_products,
+    build_message_link,
+    message_text,
+)
+from models import Channel, MatchSource
 
 log = logging.getLogger(__name__)
 
@@ -46,26 +51,12 @@ class ChannelListener:
             message_link = build_message_link(channel_username, channel_id, message_id)
 
             with self._session_factory() as session:
-                # Products of users subscribed to this channel; the recorder skips notifying paused users
-                # Match by username or numeric channel ID
-                possible_ids = []
-                if channel_username:
-                    possible_ids.append(channel_username)
-                if channel_id:
-                    possible_ids.append(str(channel_id))
-
-                if possible_ids:
-                    products = (
-                        session.query(Product)
-                        .join(UserChannel, UserChannel.user_id == Product.user_id)
-                        .join(Channel, Channel.id == UserChannel.channel_id)
-                        # Usernames are case-insensitive; older rows hold them as the user typed them
-                        .filter(func.lower(Channel.identifier).in_([i.lower() for i in possible_ids]))
-                        .order_by(Product.id)
-                        .all()
-                    )
-                else:
-                    products = []
+                # Match by username or numeric channel ID; usernames are case-insensitive, older rows hold them as typed
+                possible_ids = [i.lower() for i in (channel_username, channel_id and str(channel_id)) if i]
+                monitored = possible_ids and session.query(Channel.id).filter(
+                    func.lower(Channel.identifier).in_(possible_ids)).first() is not None
+                # The recorder skips notifying paused users
+                products = authorized_products(session) if monitored else []
                 # Detached so the recorder can read them after this session closes.
                 session.expunge_all()
 

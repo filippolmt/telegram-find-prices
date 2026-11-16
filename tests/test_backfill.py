@@ -11,6 +11,7 @@ from telethon.tl.types import PeerChannel
 
 import client_commands
 from client_commands import ClientCommands
+from config import Config
 from models import PriceHistory, Product, User
 
 
@@ -44,7 +45,7 @@ async def _run_backfill(db_session_factory, paused):
 
     bot_client = MagicMock()
     bot_client.send_message = AsyncMock()
-    found = await ClientCommands(_fake_client(), db_session_factory, bot_client).backfill_channel("deals", 100)
+    found = await ClientCommands(_fake_client(), db_session_factory, bot_client).backfill_channel("deals")
 
     with db_session_factory() as session:
         history = session.query(PriceHistory).all()
@@ -86,7 +87,7 @@ async def test_backfill_skips_product_unwatched_during_scan(db_session_factory):
     bot_client = MagicMock()
     bot_client.send_message = AsyncMock()
 
-    found = await ClientCommands(client, db_session_factory, bot_client).backfill_channel("deals", 100)
+    found = await ClientCommands(client, db_session_factory, bot_client).backfill_channel("deals")
 
     with db_session_factory() as session:
         assert [h.message_link for h in session.query(PriceHistory)] == ["https://t.me/deals/2"]
@@ -123,7 +124,7 @@ async def test_backfill_resumes_after_flood_wait(db_session_factory, monkeypatch
     monkeypatch.setattr(client_commands.asyncio, "sleep", fake_sleep)
 
     found = await ClientCommands(client, db_session_factory, MagicMock(send_message=AsyncMock())).backfill_channel(
-        "deals", 100, limit=3)
+        "deals", limit=3)
 
     assert found == 2
     assert slept.count(30) == 1  # other sleeps: the notification throttle
@@ -150,7 +151,22 @@ async def test_backfill_gives_up_after_repeated_flood_waits(db_session_factory, 
 
     monkeypatch.setattr(client_commands.asyncio, "sleep", fake_sleep)
 
-    found = await ClientCommands(client, db_session_factory, MagicMock()).backfill_channel("deals", 100)
+    found = await ClientCommands(client, db_session_factory, MagicMock()).backfill_channel("deals")
 
     assert found == 0
     assert slept == [30] * client_commands.BACKFILL_FLOOD_RETRIES
+
+
+async def test_backfill_matches_products_of_every_authorized_user(monkeypatch, db_session_factory):
+    monkeypatch.setattr(Config, "ALLOWED_USERS", [100, 200])
+    with db_session_factory() as session:
+        session.add_all([User(user_id=uid) for uid in (100, 200, 300)])
+        session.flush()
+        session.add_all([Product(user_id=uid, name="iPhone 15") for uid in (100, 200, 300)])
+        session.commit()
+
+    found = await ClientCommands(_fake_client(), db_session_factory, MagicMock(send_message=AsyncMock())).backfill_channel("deals")
+
+    with db_session_factory() as session:
+        assert sorted(h.user_id for h in session.query(PriceHistory)) == [100, 200]
+    assert found == 2

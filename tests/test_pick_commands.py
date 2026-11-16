@@ -2,7 +2,7 @@
 Tests for the commands that pick one item from a numbered list, through the registered command.
 """
 
-from models import Channel, PriceHistory, Product, User, UserChannel
+from models import PriceHistory, Product, User
 from tests.fakes import conversation_event, registered_bot
 from translations import t
 
@@ -45,26 +45,6 @@ async def test_history_of_chosen_product(monkeypatch, db_session_factory):
     assert event.replies[0] == t("history_prompt", "en", items="1. iphone\n2. kindle")
     assert event.replies[1].startswith(t("history_header", "en", product="kindle", count=1))
     assert "89.00 | deals" in event.replies[1]
-
-
-async def test_remove_channel_unlinks_chosen_channel(monkeypatch, db_session_factory):
-    with db_session_factory() as session:
-        session.add(User(id=1, user_id=1, username="owner"))
-        session.add_all([Channel(id=1, identifier="deals", title="Deals"), Channel(id=2, identifier="offers")])
-        session.flush()
-        session.add_all([UserChannel(user_id=1, channel_id=1), UserChannel(user_id=1, channel_id=2)])
-        session.commit()
-    bot = registered_bot(monkeypatch, db_session_factory)
-    event = conversation_event(["1"])
-
-    await bot.bot_client.dispatch("/remove_channel", event)
-
-    assert event.replies == [
-        t("remove_channel_prompt", "en", items="1. Deals (deals)\n2. offers"),
-        t("remove_channel_removed", "en", channel="Deals (deals)"),
-    ]
-    with db_session_factory() as session:
-        assert [uc.channel_id for uc in session.query(UserChannel)] == [2]
 
 
 async def test_unwatch_list_labels_prices_in_user_language(monkeypatch, db_session_factory):

@@ -42,16 +42,38 @@ class Channel(Base):
                       default=lambda: datetime.now(timezone.utc).isoformat())
 
 
-class UserChannel(Base):
-    """User-channel association (many-to-many)."""
-    __tablename__ = "user_channels"
+def channel_label(identifier: str, title: str | None) -> str:
+    """How a channel is shown to users: 'title (identifier)', or the identifier alone."""
+    return f"{title} ({identifier})" if title else identifier
 
+
+class ChannelRequest(Base):
+    """A pending Channel request: decided ones are deleted, invite hash included."""
+    __tablename__ = "channel_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    action = Column(String, nullable=False)  # ChannelRequestAction
+    # Username or numeric id as Channel.identifier stores it; None for an invite to a channel the account is not in
+    identifier = Column(String, nullable=True)
+    invite_hash = Column(String, nullable=True)
+    title = Column(String, nullable=True)
+    added_at = Column(String, nullable=False,
+                      default=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class ChannelRequestAction(StrEnum):
+    ADD = "add"
+    REMOVE = "remove"
+
+
+class ChannelRequester(Base):
+    """A user waiting for a Channel request: the first one filed it, the others joined it."""
+    __tablename__ = "channel_requesters"
+
+    request_id = Column(Integer, ForeignKey(
+        "channel_requests.id", ondelete="CASCADE"), primary_key=True)
     user_id = Column(Integer, ForeignKey(
         "users.user_id", ondelete="CASCADE"), primary_key=True)
-    channel_id = Column(Integer, ForeignKey(
-        "channels.id", ondelete="CASCADE"), primary_key=True)
-    # Linked by the Channel folder, which unlinks it when it leaves; False once the user adds it by hand
-    from_folder = Column(Boolean, nullable=False, default=False, server_default="0")
 
 
 class Product(Base):

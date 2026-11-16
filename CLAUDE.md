@@ -37,7 +37,8 @@ Keep these true in every change:
 - Unauthorized senders are never written to the DB.
 - User-supplied channel identifiers and invite hashes are validated by regex before reaching the Telegram API; invite hashes are logged truncated.
 - RPC errors are logged server-side; users get generic messages.
-- Notifications go only to users subscribed to the channel and not paused.
+- Notifications go only to authorized users who are not paused.
+- Only the owner (the user client's account, if listed in `ALLOWED_USERS`: `ALLOW_ALL_USERS` is not enough; nobody if `get_me()` fails) changes the monitored channels: commands and Approve/Reject buttons check it when they run.
 
 ## Production
 

@@ -6,24 +6,35 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from enum import StrEnum
-from typing import Optional
+from typing import Optional, TypeVar
 
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import sessionmaker
-from telethon import TelegramClient, events
+from telethon import Button, TelegramClient, events
 
 from amazon import first_product_link, slug_keywords, urls_in_text
 from channel_folder import ChannelFolder
+from channel_requests import ChannelRequests, Filed
 from client_commands import ClientCommands
 from command_context import CommandContext
 from config import Config, is_authorized
 from match_recorder import has_keywords
-from models import Channel, PriceHistory, Product, User, UserChannel
+from models import (
+    Channel,
+    ChannelRequest,
+    ChannelRequestAction,
+    PriceHistory,
+    Product,
+    User,
+    channel_label,
+)
 from price_parser import parse_target_price
 from prompts import NO_KEYWORDS, SKIP_KEYWORDS, YES_KEYWORDS, conversation
 from translations import DEFAULT_LANGUAGE, t
 
 log = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 _CHANNEL_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]{3,31}$")
 _INVITE_HASH_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
@@ -73,8 +84,9 @@ def _price_label(target_price: float | None, lang: str) -> str:
     return f"≤{target_price:.2f}" if target_price else t("any_price", lang)
 
 
-def _channel_label(channel) -> str:
-    return f"{channel.title} ({channel.identifier})" if channel.title else channel.identifier
+def _request_label(request: ChannelRequest, lang: str) -> str:
+    """How a request's channel is shown: an invite to a channel the account is not in shows only its hash's start."""
+    return channel_label(request.identifier or t("invite_label", lang, hash=request.invite_hash[:4]), request.title)
 
 
 def _command_argument(event) -> str:
@@ -100,11 +112,131 @@ class BotCommands:
         self.channel_folder = channel_folder
         self.client_commands = client_commands
         self._session_factory = db_session_factory
+        self.requests = ChannelRequests(db_session_factory)
+        if channel_folder:
+            # A channel the owner moves into the folder by hand answers the requests for it
+            channel_folder.on_entered = self._answer_add_requests
         self._allowed_users = Config.ALLOWED_USERS
         self._allow_all = Config.ALLOW_ALL_USERS
 
     def _is_authorized(self, user_id: int | None) -> bool:
         return is_authorized(user_id, self._allowed_users, self._allow_all)
+
+    async def _add_monitored(self, respond, lang: str, identifier: str, invite_hash: str | None) -> str | None:
+        """The owner's account joins the channel, which becomes monitored: Backfill runs if it was not.
+
+        Return the channel's label once monitored, None after telling respond why it is not.
+        """
+        joined = await self.client_commands.join_channel(identifier, invite_hash)
+        if joined is None:
+            await respond(t("join_channel_failed", lang))
+            return None
+        identifier, title = joined
+        label = channel_label(identifier, title)
+        if self.channel_folder:
+            # The account is in the channel now: a failure says so, the owner decides whether to leave it
+            new = await self._change_folder(respond, lang, "folder_add_failed", label,
+                                            self.channel_folder.add(identifier, title))
+            if new is None:
+                return None
+        else:
+            new = self.client_commands.monitor(identifier, title)
+        await respond(t("channel_added", lang, channel=label))
+        await self._answer_add_requests([identifier])
+        if new:
+            await respond(t("scanning_messages", lang))
+            matches = await self.client_commands.backfill_channel(identifier)
+            await respond(t("backfill_matches", lang, count=matches) if matches else t("backfill_no_matches", lang))
+        return label
+
+    async def _remove_monitored(self, respond, lang: str, identifier: str) -> str | None:
+        """The channel stops being monitored and the owner's account leaves it.
+
+        Return the channel's label once no longer monitored, None after telling respond why it still is.
+        """
+        channel = self.client_commands.find_channel(identifier)
+        label = channel_label(channel.identifier, channel.title) if channel else identifier
+        if self.channel_folder:
+            if await self._change_folder(respond, lang, "folder_remove_failed", label,
+                                         self.channel_folder.remove(identifier)) is None:
+                return None
+        else:
+            self.client_commands.unmonitor(identifier)
+        left = await self.client_commands.leave_channel(identifier)
+        await respond(t("channel_removed" if left else "channel_removed_not_left", lang, channel=label))
+        return label
+
+    async def _send(self, user_id: int, text: str, **kwargs) -> None:
+        """Send a bot message; a user who never started or blocked the bot is logged, the others still hear."""
+        try:
+            await self.bot_client.send_message(user_id, text, **kwargs)
+        except Exception as e:
+            log.error("Error sending a bot message to %s: %s", user_id, e)
+
+    async def _owner_or_requester(self, event, ctx: CommandContext) -> bool | None:
+        """Whether the sender changes channels as the owner (True) or by request (False); None after telling them
+        they can do neither: without a Channel folder only the owner changes channels."""
+        is_owner = ctx.user_id == await self.client_commands.owner_id()
+        if not is_owner and not self.channel_folder:
+            await event.respond(t("channels_owner_only", ctx.lang))
+            return None
+        return is_owner
+
+    async def _change_folder(self, respond, lang: str, failed_key: str, label: str, change: Awaitable[T]) -> T | None:
+        """Await a Channel folder change; None after telling respond it failed, whatever the error."""
+        try:
+            return await change
+        except Exception as e:
+            # Missing or full folder, an id Telethon cannot resolve: the owner hears of each
+            log.error("Channel folder '%s': changing '%s' failed: %r", self.channel_folder.folder_name, label, e)
+            await respond(t(failed_key, lang, channel=label, folder=self.channel_folder.folder_name))
+            return None
+
+    async def _answer_add_requests(self, identifiers: list[str]) -> None:
+        """Pending add requests for channels now monitored are done, however they entered: requesters hear it."""
+        wanted = {i.lower() for i in identifiers}
+        for request in self.requests.pending():
+            if request.action != ChannelRequestAction.ADD or (request.identifier or "").lower() not in wanted:
+                continue
+            channel = self.client_commands.find_channel(request.identifier)
+            for user_id, lang in self.requests.close(request.id) or []:
+                label = channel_label(channel.identifier, channel.title) if channel else _request_label(request, lang)
+                await self._send(user_id, t("request_approved_add", lang, channel=label))
+
+    def _lang_of(self, user_id: int) -> str:
+        with self._session_factory() as session:
+            user = session.get(User, user_id)
+            return (user and user.lang_code) or DEFAULT_LANGUAGE
+
+    async def _file_request(self, respond, ctx: CommandContext, action: ChannelRequestAction,
+                            identifier: str | None, invite_hash: str | None = None, title: str | None = None) -> None:
+        """File a Channel request; a new one goes to the owner with Approve/Reject buttons."""
+        filed, request = self.requests.file(ctx.user_id, action, identifier, invite_hash, title)
+        log.info("Channel request %s (%s) from user_id=%s: %s", request.id, action, ctx.user_id, filed)
+        label = _request_label(request, ctx.lang)
+        if filed == Filed.ALREADY_PENDING:
+            await respond(t("request_already_pending", ctx.lang, channel=label))
+            return
+        if filed == Filed.OTHER_PENDING:
+            await respond(t("request_other_pending", ctx.lang, channel=label))
+            return
+        await respond(t("request_sent", ctx.lang, channel=label))
+        if filed == Filed.NEW:
+            owner = await self.client_commands.owner_id()
+            if owner is None:
+                log.warning("Channel request %s: nobody is owner to tell, it waits for /requests", request.id)
+                return
+            await self._send_request(owner, self._lang_of(owner), request)
+
+    async def _send_request(self, owner: int, lang: str, request: ChannelRequest) -> None:
+        """Send the owner a pending request with its Approve/Reject buttons."""
+        requesters = ", ".join(t("requester_username", lang, name=name) if name else str(user_id)
+                               for user_id, name in self.requests.requesters(request.id))
+        text = t(f"request_owner_{request.action}", lang, requester=requesters, channel=_request_label(request, lang))
+        await self._send(owner, text, buttons=[[
+            Button.inline(t("approve", lang), f"approve:{request.id}"),
+            Button.inline(t("reject", lang), f"reject:{request.id}"),
+        ]])
 
     @staticmethod
     async def _identify(event: events.NewMessage.Event) -> Optional[CommandContext]:
@@ -162,8 +294,8 @@ class BotCommands:
 
             log.info("/start from id=%s username=%s first_name=%s", ctx.user_id, ctx.username, ctx.first_name)
             await event.respond(t("welcome", ctx.lang, name=ctx.display_name))
-            # The owner's /start is what the Channel folder waits for: read it now, not at the next poll
-            if self.channel_folder and ctx.user_id == await self.channel_folder.owner_id():
+            # The owner's /start reads the Channel folder now, not at the next poll
+            if self.channel_folder and ctx.user_id == await self.client_commands.owner_id():
                 count = await self.channel_folder.sync()
                 if count is not None:
                     await event.respond(t("folder_channels_monitored", ctx.lang,
@@ -171,6 +303,9 @@ class BotCommands:
 
         @self._command("add_channel")
         async def add_channel_command(event, ctx):
+            is_owner = await self._owner_or_requester(event, ctx)
+            if is_owner is None:
+                return
 
             async with conversation(event, ctx, "/add_channel") as ask:
                 channel_identifier = await ask.text("add_channel_prompt", given=_command_argument(event))
@@ -184,64 +319,115 @@ class BotCommands:
             if kind is ChannelRef.INVALID_USERNAME:
                 await event.respond(t("invalid_channel_id", ctx.lang))
                 return
-            if kind is ChannelRef.INVITE:
-                # The invite hash grants channel access: never log it in full
-                log.info("/add_channel invite_hash='%s…' from user_id=%s", value[:4], ctx.user_id)
-                success, result, db_id = await self.client_commands.join_channel("", ctx.user_id, invite_hash=value, lang=ctx.lang)
-            else:
-                log.info("/add_channel '%s' from user_id=%s", value, ctx.user_id)
-                success, result, db_id = await self.client_commands.join_channel(value, ctx.user_id, lang=ctx.lang)
+            identifier, invite_hash = (None, value) if kind is ChannelRef.INVITE else (value, None)
+            # The invite hash grants channel access: never log it in full
+            log.info("/add_channel '%s' from user_id=%s", identifier or f"invite {value[:4]}…", ctx.user_id)
+            if is_owner:
+                await self._add_monitored(event.respond, ctx.lang, identifier or "", invite_hash)
+                return
+            title = None
+            if invite_hash:
+                invite = await self.client_commands.check_invite(invite_hash)
+                if invite is None:
+                    await event.respond(t("invalid_invite_link", ctx.lang))
+                    return
+                identifier, title = invite
+            if identifier and (monitored := self.client_commands.find_channel(identifier)):
+                await event.respond(t("channel_already_monitored", ctx.lang,
+                                      channel=channel_label(monitored.identifier, monitored.title)))
+                return
+            await self._file_request(event.respond, ctx, ChannelRequestAction.ADD, identifier, invite_hash, title)
 
-            await event.respond(result)
-
-            # Backfill: scan existing messages
-            if success and db_id:
-                await event.respond(t("scanning_messages", ctx.lang))
-                matches = await self.client_commands.backfill_channel(db_id, ctx.user_id)
-                if matches > 0:
-                    await event.respond(t("backfill_matches", ctx.lang, count=matches))
+        @self.bot_client.on(events.CallbackQuery(pattern=rb"^(approve|reject):\d+$"))
+        async def request_button(event):
+            sender = await self._identify(event)
+            # Checked when pressed: the owner is whoever the account is now
+            if sender is None or sender.user_id != await self.client_commands.owner_id():
+                log.warning("Channel request button pressed by user_id=%s, not the owner: refused", event.sender_id)
+                await event.answer(t("owner_only_button", sender.lang if sender else DEFAULT_LANGUAGE))
+                return
+            await event.answer()
+            decision, request_id = event.data.decode().split(":")
+            request = self.requests.get(int(request_id))
+            if request is None:
+                await event.respond(t("request_already_decided", sender.lang))
+                return
+            log.info("Channel request %s (%s): owner pressed %s", request.id, request.action, decision)
+            if decision == "approve":
+                if request.action == ChannelRequestAction.ADD:
+                    label = await self._add_monitored(event.respond, sender.lang, request.identifier or "",
+                                                      request.invite_hash)
                 else:
-                    await event.respond(t("backfill_no_matches", ctx.lang))
+                    label = await self._remove_monitored(event.respond, sender.lang, request.identifier)
+                if label is None:
+                    await event.respond(t("request_still_pending", sender.lang))
+                    return
+                # An add request naming its channel was already answered when the channel became monitored
+                for user_id, lang in self.requests.close(request.id) or []:
+                    await self._send(user_id, t(f"request_approved_{request.action}", lang, channel=label))
+                return
+
+            label = _request_label(request, sender.lang)
+            # Cancelled or timed out: the request stays pending
+            async with conversation(event, sender, "/requests") as ask:
+                reason = await ask.text("reject_reason_prompt", channel=label)
+            if reason is None:
+                return
+            if not reason:
+                await event.respond(t("reject_reason_required", sender.lang))
+                return
+            requesters = self.requests.close(request.id)
+            if requesters is None:
+                # Approved while the owner was typing the reason
+                await event.respond(t("request_already_decided", sender.lang))
+                return
+            for user_id, lang in requesters:
+                await self._send(user_id, t("request_rejected_requester", lang, channel=label, reason=reason))
+            await event.respond(t("request_rejected", sender.lang, channel=label))
 
         @self._command("list_channels")
         async def list_channels_command(event, ctx):
 
-            channels = await self.client_commands.list_channels(ctx.user_id)
+            channels = self.client_commands.list_channels()
+            text = t("monitored_channels", ctx.lang, channels="\n".join(channels)) if channels else t("no_channels", ctx.lang)
+            if requests := self.requests.pending(ctx.user_id):
+                lines = [t(f"pending_line_{r.action}", ctx.lang, channel=_request_label(r, ctx.lang)) for r in requests]
+                text += t("your_pending_requests", ctx.lang, requests="\n".join(lines))
+            await event.respond(text)
+
+        @self._command("requests")
+        async def requests_command(event, ctx):
+            if ctx.user_id != await self.client_commands.owner_id():
+                await event.respond(t("channels_owner_only", ctx.lang))
+                return
+            requests = self.requests.pending()
+            if not requests:
+                await event.respond(t("no_requests", ctx.lang))
+            for request in requests:
+                await self._send_request(ctx.user_id, ctx.lang, request)
+
+        @self._command("remove_channel")
+        async def remove_channel_command(event, ctx):
+            is_owner = await self._owner_or_requester(event, ctx)
+            if is_owner is None:
+                return
+            with self._session_factory() as session:
+                channels = [(channel_label(c.identifier, c.title), (c.identifier, c.title))
+                            for c in session.query(Channel).order_by(Channel.id)]
             if not channels:
                 await event.respond(t("no_channels", ctx.lang))
                 return
 
-            await event.respond(t("your_channels", ctx.lang, channels="\n".join(channels)))
-
-        @self._command("remove_channel")
-        async def remove_channel_command(event, ctx):
-
-            with self._session_factory() as session:
-                user_channels = (
-                    session.query(Channel.id, Channel.identifier, Channel.title)
-                    .join(UserChannel, UserChannel.channel_id == Channel.id)
-                    .filter(UserChannel.user_id == ctx.user_id)
-                    .all()
-                )
-                if not user_channels:
-                    await event.respond(t("no_channels", ctx.lang))
-                    return
-
             async with conversation(event, ctx, "/remove_channel") as ask:
-                chosen = await ask.pick("remove_channel_prompt", [(_channel_label(ch), ch) for ch in user_channels])
+                chosen = await ask.pick("remove_channel_prompt", channels)
             if chosen is None:
                 return
-            display = _channel_label(chosen)
-            log.info("/remove_channel '%s' from user_id=%s", display, ctx.user_id)
-            with self._session_factory() as session:
-                link = session.query(UserChannel).filter_by(
-                    user_id=ctx.user_id, channel_id=chosen.id
-                ).first()
-                if link:
-                    session.delete(link)
-                    session.commit()
-
-            await event.respond(t("remove_channel_removed", ctx.lang, channel=display))
+            identifier, title = chosen
+            log.info("/remove_channel '%s' from user_id=%s", identifier, ctx.user_id)
+            if is_owner:
+                await self._remove_monitored(event.respond, ctx.lang, identifier)
+            else:
+                await self._file_request(event.respond, ctx, ChannelRequestAction.REMOVE, identifier, title=title)
 
         @self._command("watch")
         async def watch_command(event, ctx):
@@ -445,7 +631,7 @@ class BotCommands:
             log.info("/stats from user_id=%s", ctx.user_id)
             with self._session_factory() as session:
                 n_products = session.query(Product).filter_by(user_id=ctx.user_id).count()
-                n_channels = session.query(UserChannel).filter_by(user_id=ctx.user_id).count()
+                n_channels = session.query(Channel).count()
                 n_matches = session.query(PriceHistory).filter_by(user_id=ctx.user_id).count()
 
                 lines = [

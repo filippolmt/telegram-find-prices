@@ -6,7 +6,7 @@ from sqlalchemy import create_engine, inspect, text
 
 import database
 from database import Base
-from models import PriceHistory, Product, User, UserChannel
+from models import PriceHistory, Product, User
 
 
 def test_migration_removes_rows_with_dangling_references(db_engine, db_session_factory, monkeypatch):
@@ -27,15 +27,12 @@ def test_migration_removes_rows_with_dangling_references(db_engine, db_session_f
             "INSERT INTO price_history (product_id, user_id, channel, message_text, source, found_at) "
             "VALUES (999, 100, 'Ch', 'orphan', 'realtime', '2026-01-01')"
         ))
-        # A product of a user that no longer exists, with its own match, and a dangling channel link.
+        # A product of a user that no longer exists, with its own match.
         conn.execute(text("INSERT INTO products (id, user_id, name, added_at) VALUES (50, 999, 'ghost', '2026-01-01')"))
         conn.execute(text(
             "INSERT INTO price_history (product_id, user_id, channel, message_text, source, found_at) "
             "VALUES (50, 999, 'Ch', 'ghost match', 'realtime', '2026-01-01')"
         ))
-        conn.execute(text("INSERT INTO channels (id, identifier, added_at) VALUES (1, 'deals', '2026-01-01')"))
-        conn.execute(text("INSERT INTO user_channels (user_id, channel_id) VALUES (100, 999)"))
-        conn.execute(text("INSERT INTO user_channels (user_id, channel_id) VALUES (999, 1)"))
         conn.commit()
         conn.exec_driver_sql("PRAGMA foreign_keys=ON")
 
@@ -45,7 +42,6 @@ def test_migration_removes_rows_with_dangling_references(db_engine, db_session_f
     with db_session_factory() as session:
         assert [(h.product_id, h.message_text) for h in session.query(PriceHistory)] == [(kept_product_id, "kept")]
         assert [p.name for p in session.query(Product)] == ["airpods"]
-        assert session.query(UserChannel).count() == 0
 
 
 def test_every_foreign_key_cascades():
@@ -65,3 +61,24 @@ def test_migration_adds_products_asin(monkeypatch):
     columns = [c["name"] for c in inspect(engine).get_columns("products")]
     engine.dispose()
     assert "asin" in columns
+
+
+def test_migration_drops_user_links_keeping_linked_channels_monitored(monkeypatch):
+    engine = create_engine("sqlite:///:memory:")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE channels (id INTEGER PRIMARY KEY, identifier VARCHAR, title VARCHAR, added_at VARCHAR)"))
+        conn.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY, user_id INTEGER)"))
+        conn.execute(text("CREATE TABLE user_channels (user_id INTEGER, channel_id INTEGER, from_folder BOOLEAN)"))
+        conn.execute(text("INSERT INTO users VALUES (1, 100)"))
+        conn.execute(text("INSERT INTO channels VALUES (1, 'deals', NULL, '2026-01-01'), (2, 'gone', NULL, '2026-01-01')"))
+        # 'gone' is linked only by a user deleted before foreign keys were enforced: it was no longer monitored
+        conn.execute(text("INSERT INTO user_channels VALUES (100, 1, 0), (999, 2, 0)"))
+    monkeypatch.setattr(database, "engine", engine)
+
+    database.run_migrations()
+
+    with engine.connect() as conn:
+        assert [r.identifier for r in conn.execute(text("SELECT identifier FROM channels"))] == ["deals"]
+    tables = inspect(engine).get_table_names()
+    engine.dispose()
+    assert "user_channels" not in tables
