@@ -3,12 +3,12 @@ The local user-client session for dev scripts (live_check.py, replay.py, live_co
 processes at once: their Makefile targets pause the bot.
 """
 
-import re
 from contextlib import asynccontextmanager
 
 from bot import create_client
 from bot_commands import ChannelRef, parse_channel_ref
 from config import Config as cf
+from models import ChannelIdentifier
 
 
 @asynccontextmanager
@@ -26,8 +26,8 @@ async def user_client(lang_code: str = "en"):
 
 async def channel_entity(client, identifier: str):
     """A channel given as a numeric id (-100…) or a username, validated before it reaches Telegram."""
-    if re.fullmatch(r"-?\d+", identifier):
-        return await client.get_entity(int(identifier))
+    if isinstance(peer := ChannelIdentifier(identifier).peer, int):
+        return await client.get_entity(peer)
     kind, username = parse_channel_ref(identifier)
     if kind is not ChannelRef.USERNAME:
         raise SystemExit(f"Invalid channel: {identifier!r}")

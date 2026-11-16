@@ -19,8 +19,8 @@ from telethon.tl.types import (
     UpdateDialogFilters,
 )
 
-from client_commands import ClientCommands, peer_key
-from models import channel_label, stored_identifier
+from client_commands import ClientCommands
+from models import ChannelIdentifier, channel_label
 
 log = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ class ChannelFolder:
         folder = await self._read()
         if folder is None:
             raise FolderMissingError(self.folder_name)
-        peer = await self.client.get_input_entity(peer_key(identifier))
+        peer = await self.client.get_input_entity(ChannelIdentifier(identifier).peer)
 
         def others(peers):
             # Peers that are not this channel, bots and groups included, go back unchanged
@@ -132,7 +132,7 @@ class ChannelFolder:
                             self.folder_name, peer.channel_id)
                 continue
             # Same identifier join_channel() stores, so ChannelListener matches it
-            channels[stored_identifier(entity)] = entity.title
+            channels[ChannelIdentifier.of(entity)] = entity.title
 
         entered = [identifier for identifier, title in channels.items() if self._commands.monitor(identifier, title)]
         # The account stays in a channel taken out of the folder by hand: only the bot's removals leave
