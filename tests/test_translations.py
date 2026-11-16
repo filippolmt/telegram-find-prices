@@ -49,11 +49,11 @@ class TestTranslate:
         assert result == "Non sei autorizzato ad usare questo bot."
 
     def test_interpolation_english(self):
-        result = t("welcome", "en", username="Alice")
+        result = t("welcome", "en", name="Alice")
         assert result == "Hi Alice, welcome! Use /add_channel to add a channel to monitor and /watch to follow a product, also in one message: /watch <name or Amazon link>."
 
     def test_interpolation_italian(self):
-        result = t("welcome", "it", username="Alice")
+        result = t("welcome", "it", name="Alice")
         assert result == "Ciao Alice, benvenuto! Usa /add_channel per aggiungere un canale da monitorare e /watch per seguire un prodotto, anche in un solo messaggio: /watch <nome o link Amazon>."
 
     def test_fallback_unsupported_language(self):

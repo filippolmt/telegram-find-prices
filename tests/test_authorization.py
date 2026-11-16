@@ -124,9 +124,31 @@ async def test_start_without_username_registers_and_greets_by_first_name(monkeyp
 
     await bot.bot_client.dispatch("/start", event)
 
-    assert event.replies == [t("welcome", "en", username="Bruno")]
+    assert event.replies == [t("welcome", "en", name="Bruno")]
     with db_session_factory() as session:
         assert session.query(User).filter_by(user_id=1).one().username is None
+
+
+async def test_start_greets_by_user_id_without_username_or_first_name(monkeypatch, db_session_factory):
+    bot = registered_bot(monkeypatch, db_session_factory)
+    event = chat_event(1, username=None, first_name=None)
+
+    await bot.bot_client.dispatch("/start", event)
+
+    assert event.replies == [t("welcome", "en", name="1")]
+
+
+async def test_gate_never_registers_a_channel_sender_even_when_all_users_are_allowed(monkeypatch, db_session_factory):
+    # Anonymous group admins and linked channels send with a negative (channel) id
+    bot = make_bot(monkeypatch, db_session_factory, [], True)
+    flow, calls = _recording_flow()
+    event = chat_event(-1001234567890, username=None)
+
+    await bot._gate(flow)(event)
+
+    assert calls == []
+    with db_session_factory() as session:
+        assert session.query(User).count() == 0
 
 
 async def test_registered_command_runs_flow_for_authorized_sender(monkeypatch, db_session_factory):

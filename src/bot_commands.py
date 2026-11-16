@@ -109,14 +109,16 @@ class BotCommands:
     async def register_user_if_not_exists(self, event: events.NewMessage.Event) -> Optional[CommandContext]:
         """Identify the sender and register them if authorized and not yet registered.
 
-        Returns None when the sender has no user id. The username is optional: many accounts have none.
+        Returns None when the sender is not a user: no id, or a channel's negative id (anonymous admins,
+        linked channels). The username is optional: many accounts have none.
         """
         tg_sender = await event.get_sender()
         user_id: Optional[int] = getattr(event, "sender_id", None)
         username: Optional[str] = getattr(tg_sender, "username", None)
-        if user_id is None:
+        if user_id is None or user_id <= 0:
             return None
-        sender = CommandContext(user_id, username, resolve_lang(getattr(tg_sender, "lang_code", None)))
+        sender = CommandContext(user_id, username, resolve_lang(getattr(tg_sender, "lang_code", None)),
+                                getattr(tg_sender, "first_name", None))
 
         if not self._is_authorized(user_id):
             # Never persist strangers: this check, not the gate order, keeps them out of the DB
@@ -166,9 +168,8 @@ class BotCommands:
         @self._command("start", missing_identity_reply="not_authorized")
         async def start_command(event, ctx):
 
-            log.info("/start from @%s (id=%s)", ctx.username, ctx.user_id)
-            name = ctx.username or getattr(await event.get_sender(), "first_name", None) or str(ctx.user_id)
-            await event.respond(t("welcome", ctx.lang, username=name))
+            log.info("/start from %s (id=%s)", ctx.display_name, ctx.user_id)
+            await event.respond(t("welcome", ctx.lang, name=ctx.display_name))
             # The owner's /start is what the Channel folder waits for: read it now, not at the next poll
             if self.channel_folder and ctx.user_id == await self.channel_folder.owner_id():
                 count = await self.channel_folder.sync()

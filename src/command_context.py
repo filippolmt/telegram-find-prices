@@ -12,3 +12,9 @@ class CommandContext:
     user_id: int
     username: str | None
     lang: str
+    first_name: str | None = None
+
+    @property
+    def display_name(self) -> str:
+        """How to address the sender: many accounts have no username, deleted ones no first name."""
+        return self.username or self.first_name or str(self.user_id)

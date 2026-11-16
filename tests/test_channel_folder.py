@@ -198,7 +198,7 @@ async def test_owner_start_reads_folder_at_once(monkeypatch, db_session_factory)
 
     await bot.bot_client.dispatch("/start", event)
 
-    assert event.replies == [t("welcome", "en", username="owner"),
+    assert event.replies == [t("welcome", "en", name="owner"),
                              t("folder_channels_monitored", "en", folder="Offers", count=2)]
     assert len(await commands.list_channels(OWNER)) == 2
 
@@ -209,5 +209,5 @@ async def test_other_user_start_leaves_folder_alone(monkeypatch, db_session_fact
 
     await bot.bot_client.dispatch("/start", event)
 
-    assert event.replies == [t("welcome", "en", username="friend")]
+    assert event.replies == [t("welcome", "en", name="friend")]
     assert await commands.list_channels(OWNER) == []
