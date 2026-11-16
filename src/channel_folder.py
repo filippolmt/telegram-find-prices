@@ -155,3 +155,27 @@ class ChannelFolder:
             log.warning("Channel folder '%s': the account has no folder with this name, nothing changed",
                         self.folder_name)
         return folder
+
+
+class MonitoredChannels:
+    """Where the monitored channels change: the Channel folder when there is one, else the DB alone."""
+
+    def __init__(self, client_commands: ClientCommands, channel_folder: ChannelFolder | None):
+        self._commands = client_commands
+        self._folder = channel_folder
+
+    @property
+    def folder_name(self) -> str | None:
+        return self._folder and self._folder.folder_name
+
+    async def add(self, identifier: str, title: str | None) -> bool:
+        """Monitor a channel the account has joined; return whether it was not monitored. Raises as ChannelFolder.add."""
+        if self._folder:
+            return await self._folder.add(identifier, title)
+        return self._commands.monitor(identifier, title)
+
+    async def remove(self, identifier: str) -> bool:
+        """Stop monitoring a channel; return whether it was monitored. Raises as ChannelFolder.remove."""
+        if self._folder:
+            return await self._folder.remove(identifier)
+        return self._commands.unmonitor(identifier)
