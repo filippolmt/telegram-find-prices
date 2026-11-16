@@ -132,49 +132,49 @@ class BotCommands:
     def _is_authorized(self, user_id: int | None) -> bool:
         return is_authorized(user_id, self._allowed_users, self._allow_all)
 
-    async def _add_monitored(self, respond, lang: str, identifier: str, invite_hash: str | None) -> str | None:
+    async def _add_monitored(self, event, ctx: CommandContext, identifier: str, invite_hash: str | None) -> str | None:
         """The owner's account joins the channel, which becomes monitored: Backfill runs if it was not.
 
-        Return the channel's label once monitored, None after telling respond why it is not.
+        Return the channel's label once monitored, None after telling the owner why it is not.
         """
         joined = await self.client_commands.join_channel(identifier, invite_hash)
         if joined is None:
-            await respond(t("join_channel_failed", lang))
+            await event.respond(t("join_channel_failed", ctx.lang))
             return None
         identifier, title = joined
         label = joined.label
         if self.channel_folder:
             # The account is in the channel now: a failure says so, the owner decides whether to leave it
-            new = await self._change_folder(respond, lang, "folder_add_failed", label,
+            new = await self._change_folder(event, ctx, "folder_add_failed", label,
                                             self.channel_folder.add(identifier, title))
             if new is None:
                 return None
         else:
             new = self.client_commands.monitor(identifier, title)
-        await respond(t("channel_added", lang, channel=label))
+        await event.respond(t("channel_added", ctx.lang, channel=label))
         await self._answer_requests({identifier: label}, {})
         if new:
-            await respond(t("scanning_messages", lang))
+            await event.respond(t("scanning_messages", ctx.lang))
             matches = await self.client_commands.backfill_channel(identifier)
-            await respond(t("backfill_matches", lang, count=matches) if matches else t("backfill_no_matches", lang))
+            await event.respond(t("backfill_matches", ctx.lang, count=matches) if matches else t("backfill_no_matches", ctx.lang))
         return label
 
-    async def _remove_monitored(self, respond, lang: str, identifier: str) -> str | None:
+    async def _remove_monitored(self, event, ctx: CommandContext, identifier: str) -> str | None:
         """The channel stops being monitored and the owner's account leaves it.
 
-        Return the channel's label once no longer monitored, None after telling respond why it still is.
+        Return the channel's label once no longer monitored, None after telling the owner why it still is.
         """
         channel = self.client_commands.find_channel(identifier)
         label = channel.label if channel else identifier
         if self.channel_folder:
-            if await self._change_folder(respond, lang, "folder_remove_failed", label,
+            if await self._change_folder(event, ctx, "folder_remove_failed", label,
                                          self.channel_folder.remove(identifier)) is None:
                 return None
         else:
             self.client_commands.unmonitor(identifier)
         await self._answer_requests({}, {identifier: label})
         left = await self.client_commands.leave_channel(identifier)
-        await respond(t("channel_removed" if left else "channel_removed_not_left", lang, channel=label))
+        await event.respond(t("channel_removed" if left else "channel_removed_not_left", ctx.lang, channel=label))
         return label
 
     async def _owner_pressing(self, event) -> CommandContext | None:
@@ -198,9 +198,9 @@ class BotCommands:
                 return
             log.info("Channel request %s (%s): approved", request.id, request.action)
             if request.action == ChannelRequestAction.ADD:
-                label = await self._add_monitored(event.respond, owner.lang, request.identifier or "", request.invite_hash)
+                label = await self._add_monitored(event, owner, request.identifier or "", request.invite_hash)
             else:
-                label = await self._remove_monitored(event.respond, owner.lang, request.identifier)
+                label = await self._remove_monitored(event, owner, request.identifier)
             if label is None:
                 await event.respond(t("request_still_pending", owner.lang))
                 return
@@ -215,12 +215,10 @@ class BotCommands:
         label = _request_label(request, owner.lang)
         # Cancelled or timed out: the request stays pending
         async with conversation(event, owner, "/requests") as ask:
-            reason = await ask.text("reject_reason_prompt", channel=label)
-        if reason is None:
-            return
-        if not reason:
-            await event.respond(t("reject_reason_required", owner.lang))
-            return
+            while not (reason := await ask.text("reject_reason_prompt", channel=label)):
+                if reason is None:
+                    return
+                await event.respond(t("reject_reason_required", owner.lang))
         if not await self._still_owner(event, owner, "owner_only_button"):
             return
         async with self._decisions:
@@ -271,14 +269,14 @@ class BotCommands:
             return None
         return is_owner
 
-    async def _change_folder(self, respond, lang: str, failed_key: str, label: str, change: Awaitable[bool]) -> bool | None:
-        """Await a Channel folder change; None after telling respond it failed, whatever the error."""
+    async def _change_folder(self, event, ctx: CommandContext, failed_key: str, label: str, change: Awaitable[bool]) -> bool | None:
+        """Await a Channel folder change; None after telling the owner it failed, whatever the error."""
         try:
             return await change
         except Exception as e:
             # Missing or full folder, an id Telethon cannot resolve: the owner hears of each
             log.error("Channel folder '%s': changing '%s' failed: %r", self.channel_folder.folder_name, label, e)
-            await respond(t(failed_key, lang, channel=label, folder=self.channel_folder.folder_name))
+            await event.respond(t(failed_key, ctx.lang, channel=label, folder=self.channel_folder.folder_name))
             return None
 
     async def _answer_requests(self, entered: dict[str, str], left: dict[str, str]) -> None:
@@ -300,19 +298,19 @@ class BotCommands:
             user = session.get(User, user_id)
             return resolve_lang(user and user.lang_code)
 
-    async def _file_request(self, respond, ctx: CommandContext, action: ChannelRequestAction,
+    async def _file_request(self, event, ctx: CommandContext, action: ChannelRequestAction,
                             channel: ChannelInfo, invite_hash: str | None = None) -> None:
         """File a Channel request; a new one goes to the owner with Approve/Reject buttons."""
         filed, request = self.channel_requests.file(ctx.user_id, action, channel, invite_hash)
         log.info("Channel request %s (%s) from user_id=%s: %s", request.id, action, ctx.user_id, filed)
         label = _request_label(request, ctx.lang)
         if filed == Filed.ALREADY_PENDING:
-            await respond(t("request_already_pending", ctx.lang, channel=label))
+            await event.respond(t("request_already_pending", ctx.lang, channel=label))
             return
         if filed == Filed.OTHER_PENDING:
-            await respond(t("request_other_pending", ctx.lang, channel=label))
+            await event.respond(t("request_other_pending", ctx.lang, channel=label))
             return
-        await respond(t("request_sent", ctx.lang, channel=label))
+        await event.respond(t("request_sent", ctx.lang, channel=label))
         if filed == Filed.NEW:
             owner = await self.client_commands.owner_id()
             if owner is None:
@@ -322,8 +320,9 @@ class BotCommands:
 
     async def _send_request(self, owner: int, lang: str, request: ChannelRequest) -> None:
         """Send the owner a pending request with its Approve/Reject buttons."""
-        requesters = ", ".join(t("requester_username", lang, name=name) if name else str(user_id)
-                               for user_id, name in self.channel_requests.requesters(request.id))
+        requesters = t("requesters_separator", lang).join(
+            t("requester_username", lang, name=name) if name else t("requester_id", lang, id=user_id)
+            for user_id, name in self.channel_requests.requesters(request.id))
         text = t(f"request_owner_{request.action}", lang, requester=requesters, channel=_request_label(request, lang))
         await self._send(owner, text, buttons=[[
             Button.inline(t("approve", lang), f"{Decision.APPROVE}:{request.id}"),
@@ -416,7 +415,7 @@ class BotCommands:
             log.info("/add_channel '%s' from user_id=%s", identifier or f"invite {value[:4]}…", ctx.user_id)
             if is_owner:
                 if await self._still_owner(event, ctx, "channels_owner_only"):
-                    await self._add_monitored(event.respond, ctx.lang, identifier or "", invite_hash)
+                    await self._add_monitored(event, ctx, identifier or "", invite_hash)
                 return
             channel = ChannelInfo(identifier, None)
             if invite_hash:
@@ -427,7 +426,7 @@ class BotCommands:
             if channel.identifier and (monitored := self.client_commands.find_channel(channel.identifier)):
                 await event.respond(t("channel_already_monitored", ctx.lang, channel=monitored.label))
                 return
-            await self._file_request(event.respond, ctx, ChannelRequestAction.ADD, channel, invite_hash)
+            await self._file_request(event, ctx, ChannelRequestAction.ADD, channel, invite_hash)
 
         @self.bot_client.on(events.CallbackQuery(pattern=_REQUEST_BUTTON))
         async def request_button(event):
@@ -479,9 +478,9 @@ class BotCommands:
             log.info("/remove_channel '%s' from user_id=%s", chosen.identifier, ctx.user_id)
             if is_owner:
                 if await self._still_owner(event, ctx, "channels_owner_only"):
-                    await self._remove_monitored(event.respond, ctx.lang, chosen.identifier)
+                    await self._remove_monitored(event, ctx, chosen.identifier)
             else:
-                await self._file_request(event.respond, ctx, ChannelRequestAction.REMOVE, chosen)
+                await self._file_request(event, ctx, ChannelRequestAction.REMOVE, chosen)
 
         @self._command("watch")
         async def watch_command(event, ctx):

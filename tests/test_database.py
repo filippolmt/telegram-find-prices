@@ -2,6 +2,7 @@
 Tests for database.run_migrations().
 """
 
+import pytest
 from sqlalchemy import create_engine, inspect, text
 
 import database
@@ -63,22 +64,36 @@ def test_migration_adds_products_asin(monkeypatch):
     assert "asin" in columns
 
 
-def test_migration_drops_user_links_keeping_linked_channels_monitored(monkeypatch):
+@pytest.fixture
+def old_user_links(monkeypatch):
+    """A DB from before shared channels: the owner (100) linked 'deals', another user (200) 'friends_pick'.
+
+    Disposed even when the test fails: an open connection warns at garbage collection, failing a later test.
+    """
     engine = create_engine("sqlite:///:memory:")
     with engine.begin() as conn:
         conn.execute(text("CREATE TABLE channels (id INTEGER PRIMARY KEY, identifier VARCHAR, title VARCHAR, added_at VARCHAR)"))
-        conn.execute(text("CREATE TABLE users (id INTEGER PRIMARY KEY, user_id INTEGER)"))
         conn.execute(text("CREATE TABLE user_channels (user_id INTEGER, channel_id INTEGER, from_folder BOOLEAN)"))
-        conn.execute(text("INSERT INTO users VALUES (1, 100)"))
-        conn.execute(text("INSERT INTO channels VALUES (1, 'deals', NULL, '2026-01-01'), (2, 'gone', NULL, '2026-01-01')"))
-        # 'gone' is linked only by a user deleted before foreign keys were enforced: it was no longer monitored
-        conn.execute(text("INSERT INTO user_channels VALUES (100, 1, 0), (999, 2, 0)"))
+        conn.execute(text("INSERT INTO channels VALUES (1, 'deals', NULL, '2026-01-01'), (2, 'friends_pick', NULL, '2026-01-01')"))
+        conn.execute(text("INSERT INTO user_channels VALUES (100, 1, 0), (200, 2, 0)"))
     monkeypatch.setattr(database, "engine", engine)
-
-    database.run_migrations()
-
-    with engine.connect() as conn:
-        assert [r.identifier for r in conn.execute(text("SELECT identifier FROM channels"))] == ["deals"]
-    tables = inspect(engine).get_table_names()
+    yield engine
     engine.dispose()
-    assert "user_channels" not in tables
+
+
+def _state(engine):
+    with engine.connect() as conn:
+        channels = [r.identifier for r in conn.execute(text("SELECT identifier FROM channels ORDER BY id"))]
+    return channels, "user_channels" in inspect(engine).get_table_names()
+
+
+def test_shared_channels_migration_keeps_only_the_owners_channels(old_user_links):
+    database.migrate_to_shared_channels(owner_id=100)
+
+    assert _state(old_user_links) == (["deals"], False)
+
+
+def test_shared_channels_migration_waits_while_nobody_is_owner(old_user_links):
+    database.migrate_to_shared_channels(owner_id=None)
+
+    assert _state(old_user_links) == (["deals", "friends_pick"], True)

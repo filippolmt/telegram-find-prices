@@ -247,13 +247,14 @@ async def test_owner_rejects_with_a_reason_the_requesters_get(setup):
 async def test_reject_cancelled_or_without_reason_leaves_the_request_pending(setup):
     bot, _ = setup(folder(2))
     await _request(bot, "/add_channel @deals", FRIEND)
-    cancelled, empty = button_event("reject:1", answers=["/cancel"]), button_event("reject:1", answers=[""])
+    cancelled, empty = button_event("reject:1", answers=["/cancel"]), button_event("reject:1", answers=["", "/cancel"])
 
     await bot.bot_client.press(cancelled)
     await bot.bot_client.press(empty)
 
     assert cancelled.replies[-1] == t("operation_cancelled", "en")
-    assert empty.replies[-1] == t("reject_reason_required", "en")
+    assert empty.replies[-3:] == [t("reject_reason_required", "en"), t("reject_reason_prompt", "en", channel="deals"),
+                                  t("operation_cancelled", "en")]
     assert bot.bot_client.sent == []
     assert [r.id for r in bot.channel_requests.pending()] == [1]
 
@@ -503,3 +504,26 @@ async def test_requester_no_longer_authorized_gets_no_answer(setup, monkeypatch)
     await bot.bot_client.press(button_event("approve:1"))
 
     assert [uid for uid, _, _ in bot.bot_client.sent] == [OTHER]
+
+
+async def test_reject_asks_again_for_an_empty_reason(setup):
+    bot, _ = setup(folder(2))
+    await _request(bot, "/add_channel @deals", FRIEND)
+    event = button_event("reject:1", answers=["", "Too many ads"])
+
+    await bot.bot_client.press(event)
+
+    assert event.replies[-1] == t("request_rejected", "en", channel="deals")
+    assert bot.bot_client.sent == [(FRIEND, t("request_rejected_requester", "en", channel="deals", reason="Too many ads"), None)]
+
+
+async def test_owner_reads_requesters_without_a_username_by_their_id(setup):
+    bot, _ = setup(folder(2))
+    await bot.bot_client.dispatch("/add_channel @deals", conversation_event([], user_id=FRIEND, username="friend"))
+    await bot.bot_client.dispatch("/add_channel @deals", conversation_event([], user_id=OTHER, username=None))
+    bot.bot_client.sent.clear()
+
+    await bot.bot_client.dispatch("/requests", conversation_event([], user_id=OWNER))
+
+    assert [text for _, text, _ in bot.bot_client.sent] == [
+        t("request_owner_add", "en", requester="@friend, user 300", channel="deals")]

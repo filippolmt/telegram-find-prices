@@ -23,7 +23,13 @@ from channel_folder import ChannelFolder
 from channel_listener import ChannelListener
 from client_commands import ClientCommands
 from config import Config
-from database import Base, SessionLocal, engine, run_migrations
+from database import (
+    Base,
+    SessionLocal,
+    engine,
+    migrate_to_shared_channels,
+    run_migrations,
+)
 from scheduler import DailySummaryScheduler
 
 
@@ -89,6 +95,7 @@ async def main():
     if not await user_client_ready(client):
         return
     log.info("Client started!")
+    migrate_to_shared_channels(await client_commands.owner_id())
     ChannelListener(client, bot_client, SessionLocal).register()
     log.info("Channel listener active!")
 

@@ -71,15 +71,6 @@ def run_migrations():
                 conn.execute(text("ALTER TABLE channels ADD COLUMN title VARCHAR"))
                 log.info("Migration: added column channels.title")
 
-        # user_channels: monitored channels became shared (#93). A channel no existing user linked was no longer monitored.
-        if "user_channels" in inspector.get_table_names():
-            removed = conn.execute(text(
-                "DELETE FROM channels WHERE id NOT IN (SELECT channel_id FROM user_channels "
-                "WHERE user_id IN (SELECT user_id FROM users))"
-            )).rowcount
-            conn.execute(text("DROP TABLE user_channels"))
-            log.info("Migration: dropped user_channels, removed %d channels no user had", removed)
-
         # Rows with dangling references, left before foreign keys were enforced.
         # One pass suffices: every foreign key cascades, so deleting a row cannot orphan another.
         # A future foreign key without CASCADE would make these deletes fail at startup instead.
@@ -91,3 +82,21 @@ def run_migrations():
                 removed += conn.exec_driver_sql(f'DELETE FROM "{table}" WHERE rowid = ?', (rowid,)).rowcount
             if removed:
                 log.info("Migration: removed %d orphaned rows (plus their cascaded rows)", removed)
+
+
+def migrate_to_shared_channels(owner_id: int | None) -> None:
+    """Monitored channels became shared (#93): keep those the owner had, drop the per-user links (user_channels).
+
+    Run once the owner is known, which run_migrations() cannot tell; while nobody is owner it waits for a later start.
+    """
+    if "user_channels" not in inspect(engine).get_table_names():
+        return
+    if owner_id is None:
+        log.warning("Migration to shared channels waits for an owner: user_channels kept, channels unchanged")
+        return
+    with engine.begin() as conn:
+        removed = conn.execute(text(
+            "DELETE FROM channels WHERE id NOT IN (SELECT channel_id FROM user_channels WHERE user_id = :owner)"
+        ), {"owner": owner_id}).rowcount
+        conn.execute(text("DROP TABLE user_channels"))
+    log.info("Migration: dropped user_channels, removed %d channels the owner had not added", removed)
