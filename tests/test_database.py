@@ -3,7 +3,7 @@ Tests for database.run_migrations().
 """
 
 import pytest
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import inspect, text
 
 import database
 from database import Base
@@ -51,34 +51,24 @@ def test_every_foreign_key_cascades():
             if fk.ondelete != "CASCADE"] == []
 
 
-def test_migration_adds_products_asin(monkeypatch):
-    engine = create_engine("sqlite:///:memory:")
-    with engine.begin() as conn:
+def test_migration_adds_products_asin(fresh_engine):
+    with fresh_engine.begin() as conn:
         conn.execute(text("CREATE TABLE products (id INTEGER PRIMARY KEY, user_id INTEGER, name VARCHAR, category VARCHAR)"))
-    monkeypatch.setattr(database, "engine", engine)
 
     database.run_migrations()
 
-    columns = [c["name"] for c in inspect(engine).get_columns("products")]
-    engine.dispose()
-    assert "asin" in columns
+    assert "asin" in [c["name"] for c in inspect(fresh_engine).get_columns("products")]
 
 
 @pytest.fixture
-def old_user_links(monkeypatch):
-    """A DB from before shared channels: the owner (100) linked 'deals', another user (200) 'friends_pick'.
-
-    Disposed even when the test fails: an open connection warns at garbage collection, failing a later test.
-    """
-    engine = create_engine("sqlite:///:memory:")
-    with engine.begin() as conn:
+def old_user_links(fresh_engine):
+    """A DB from before shared channels: the owner (100) linked 'deals', another user (200) 'friends_pick'."""
+    with fresh_engine.begin() as conn:
         conn.execute(text("CREATE TABLE channels (id INTEGER PRIMARY KEY, identifier VARCHAR, title VARCHAR, added_at VARCHAR)"))
         conn.execute(text("CREATE TABLE user_channels (user_id INTEGER, channel_id INTEGER, from_folder BOOLEAN)"))
         conn.execute(text("INSERT INTO channels VALUES (1, 'deals', NULL, '2026-01-01'), (2, 'friends_pick', NULL, '2026-01-01')"))
         conn.execute(text("INSERT INTO user_channels VALUES (100, 1, 0), (200, 2, 0)"))
-    monkeypatch.setattr(database, "engine", engine)
-    yield engine
-    engine.dispose()
+    return fresh_engine
 
 
 def _state(engine):

@@ -26,6 +26,21 @@ def db_engine():
 
 
 @pytest.fixture
+def fresh_engine(monkeypatch):
+    """An empty in-memory SQLite engine standing in for database.engine, for migration tests to shape by hand.
+
+    Disposed even when the test fails: an engine left open warns at garbage collection, and filterwarnings=error
+    turns that into a failure of whichever later test is running.
+    """
+    import database
+
+    engine = create_engine("sqlite:///:memory:")
+    monkeypatch.setattr(database, "engine", engine)
+    yield engine
+    engine.dispose()
+
+
+@pytest.fixture
 def db_session_factory(db_engine):
     """Return a sessionmaker (same pattern as production)."""
     return sessionmaker(bind=db_engine)
