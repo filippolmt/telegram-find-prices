@@ -132,7 +132,11 @@ def _product_prices(mentions: Callable[[str], bool], text: str, priced_below: bo
 
 def _offer_urls(text: str) -> list[str]:
     """URLs of text that can be the offer: images (link previews, price charts) and Telegram's own pages
-    (disclaimers, channel promos) never are."""
+    (disclaimers, channel promos) never are.
+
+    shortcut: a denylist, so an image host without a file extension or another disclaimer service passes as the
+    offer; after a make dump-posts, tally the Offer hosts of the matches and add any non-offer host found here.
+    """
     return [
         url for url in urls_in_text(text)
         if (urlsplit(url).hostname or "").lower() not in {"t.me", "telegra.ph"}

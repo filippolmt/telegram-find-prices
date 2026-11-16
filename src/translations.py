@@ -82,7 +82,7 @@ MESSAGES = {
         "notify_match": "'{product}' found in {channel}!\n{price_line}{text}{offer_line}{link_line}",
         "notify_price_line": "Price found: {price:.2f} (target: {target:.2f})\n\n",
         "notify_offer_line": "\n\nOffer: {url}",
-        "notify_link_line": "\n\n Go to message: {link}",
+        "notify_link_line": "\n\nGo to message: {link}",
         "notify_backfill_match": "[Backfill] '{product}' found in {channel}!\n{price_line}{text}{offer_line}{link_line}",
         "notify_backfill_price_line": "{price:.2f} (target: {target:.2f})\n\n",
 
@@ -178,7 +178,7 @@ MESSAGES = {
         "notify_match": "'{product}' trovato in {channel}!\n{price_line}{text}{offer_line}{link_line}",
         "notify_price_line": "Prezzo trovato: {price:.2f} (obiettivo: {target:.2f})\n\n",
         "notify_offer_line": "\n\nOfferta: {url}",
-        "notify_link_line": "\n\n Vai al messaggio: {link}",
+        "notify_link_line": "\n\nVai al messaggio: {link}",
         "notify_backfill_match": "[Scansione] '{product}' trovato in {channel}!\n{price_line}{text}{offer_line}{link_line}",
         "notify_backfill_price_line": "{price:.2f} (obiettivo: {target:.2f})\n\n",
 
