@@ -9,14 +9,14 @@ MESSAGES = {
     "en": {
         # Auth / generic
         "not_authorized": "You are not authorized to use this bot.",
-        "start_first": "Please start the bot first with /start in a private chat.",
+        "users_only": "This bot works only for user accounts, in a private chat.",
         "operation_cancelled": "Operation cancelled.",
         "timed_out": "Timed out. Try again with {command}.",
         "invalid_choice": "Invalid choice. Try again with {command}.",
         "number_out_of_range": "Number out of range. Try again with {command}.",
 
         # /start
-        "welcome": "Hi {username}, welcome! Use /add_channel to add a channel to monitor and /watch to follow a product, also in one message: /watch <name or Amazon link>.",
+        "welcome": "Hi {name}, welcome! Use /add_channel to add a channel to monitor and /watch to follow a product, also in one message: /watch <name or Amazon link>.",
         "folder_channels_monitored": "Channels monitored from your Telegram folder «{folder}»: {count}. Channels you add to it or remove from it follow within 10 minutes.",
 
         # /add_channel
@@ -104,14 +104,14 @@ MESSAGES = {
     "it": {
         # Auth / generic
         "not_authorized": "Non sei autorizzato ad usare questo bot.",
-        "start_first": "Avvia prima il bot con /start in una chat privata.",
+        "users_only": "Questo bot funziona solo con account utente, in una chat privata.",
         "operation_cancelled": "Operazione annullata.",
         "timed_out": "Tempo scaduto. Riprova con {command}.",
         "invalid_choice": "Scelta non valida. Riprova con {command}.",
         "number_out_of_range": "Numero fuori intervallo. Riprova con {command}.",
 
         # /start
-        "welcome": "Ciao {username}, benvenuto! Usa /add_channel per aggiungere un canale da monitorare e /watch per seguire un prodotto, anche in un solo messaggio: /watch <nome o link Amazon>.",
+        "welcome": "Ciao {name}, benvenuto! Usa /add_channel per aggiungere un canale da monitorare e /watch per seguire un prodotto, anche in un solo messaggio: /watch <nome o link Amazon>.",
         "folder_channels_monitored": "Canali monitorati dal tuo folder Telegram «{folder}»: {count}. I canali che aggiungi o togli dal folder vengono aggiornati entro 10 minuti.",
 
         # /add_channel
