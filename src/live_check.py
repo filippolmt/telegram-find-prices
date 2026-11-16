@@ -3,7 +3,9 @@ Live check: run real channel messages through Backfill and Realtime.
 
 Uses the local user-client session against real channels, a throwaway SQLite DB
 and a bot client that prints notifications instead of sending them, so the real
-DB and real users stay untouched. Exits 1 if Backfill and Realtime disagree.
+DB and real users stay untouched. Every product is watched by two users, since
+monitored channels are shared: exits 1 if Backfill and Realtime disagree, or if
+the two users' matches differ.
 
 Run it with `make live-check` (see the Makefile for the arguments).
 """
@@ -20,11 +22,12 @@ from sqlalchemy.orm import sessionmaker
 
 from channel_listener import ChannelListener
 from client_commands import ClientCommands
+from config import Config
 from database import Base
-from models import Channel, MatchSource, PriceHistory, Product, User, UserChannel
+from models import Channel, MatchSource, PriceHistory, Product, User, stored_identifier
 from user_session import channel_entity, user_client
 
-USER_ID = 1
+USERS = (1, 2)
 
 
 class PrintBot:
@@ -32,10 +35,10 @@ class PrintBot:
         print(f"\n--- notification to user {user_id} ---\n{text}\n---")
 
 
-def _parse_product(spec: str) -> Product:
+def _parse_product(spec: str, user_id: int) -> Product:
     name, _, target = spec.partition("=")
     name, _, asin = name.partition("#")
-    return Product(user_id=USER_ID, name=name.strip(), asin=asin.strip().upper() or None, target_price=float(target) if target else None)
+    return Product(user_id=user_id, name=name.strip(), asin=asin.strip().upper() or None, target_price=float(target) if target else None)
 
 
 async def main() -> int:
@@ -53,16 +56,14 @@ async def main() -> int:
     async with user_client() as client:
         entities = [await channel_entity(client, identifier) for identifier in args.channel]
 
+        Config.ALLOWED_USERS, Config.ALLOW_ALL_USERS = list(USERS), False
         with session_factory() as session:
-            session.add(User(user_id=USER_ID, lang_code=args.lang))
+            session.add_all(User(user_id=user_id, lang_code=args.lang) for user_id in USERS)
             session.flush()
-            session.add_all(_parse_product(spec) for spec in args.product)
-            for entity in entities:
-                # Same identifier join_channel stores: username, else the bare channel id
-                channel = Channel(identifier=getattr(entity, "username", None) or str(entity.id), title=entity.title)
-                session.add(channel)
-                session.flush()
-                session.add(UserChannel(user_id=USER_ID, channel_id=channel.id))
+            session.add_all(_parse_product(spec, user_id) for user_id in USERS for spec in args.product)
+            # Same identifier join_channel stores: username, else the bare channel id
+            session.add_all(Channel(identifier=stored_identifier(entity), title=entity.title)
+                            for entity in entities)
             session.commit()
 
         bot = PrintBot()
@@ -75,16 +76,19 @@ async def main() -> int:
 
         for identifier, entity in zip(args.channel, entities, strict=True):
             print(f"\n===== {entity.title} =====")
-            await commands.backfill_channel(identifier, USER_ID, limit=args.limit)
+            await commands.backfill_channel(identifier, limit=args.limit)
             # Replay the same messages through the Realtime handler, as NewMessage events would arrive
             async for message in client.iter_messages(entity, limit=args.limit):
                 event = SimpleNamespace(message=message, id=message.id, get_chat=lambda e=entity: _resolved(e))
                 await handlers[0](event)
 
     with session_factory() as session:
-        rows = session.query(PriceHistory.source, PriceHistory.product_id, PriceHistory.message_link, PriceHistory.price).all()
+        rows = session.query(PriceHistory.user_id, PriceHistory.source, PriceHistory.product_id,
+                             PriceHistory.message_link, PriceHistory.price).all()
         names = dict(session.query(Product.id, Product.name))
-    found = {source: {(names[p], link, price) for s, p, link, price in rows if s == source} for source in MatchSource}
+    by_user = {user_id: {source: {(names[p], link, price) for u, s, p, link, price in rows if u == user_id and s == source}
+                         for source in MatchSource} for user_id in USERS}
+    found = by_user[USERS[0]]
 
     print("\n===== matches =====")
     for name, link, price in sorted(found[MatchSource.BACKFILL] | found[MatchSource.REALTIME], key=str):
@@ -93,7 +97,10 @@ async def main() -> int:
     if found[MatchSource.BACKFILL] != found[MatchSource.REALTIME]:
         print("\nFAIL: Backfill and Realtime disagree on the same messages")
         return 1
-    print(f"\nOK: {len(found[MatchSource.BACKFILL])} matches, Backfill and Realtime agree")
+    if by_user[USERS[1]] != found:
+        print(f"\nFAIL: user {USERS[1]} watching the same products got other matches than user {USERS[0]}")
+        return 1
+    print(f"\nOK: {len(found[MatchSource.BACKFILL])} matches for each of {len(USERS)} users, Backfill and Realtime agree")
     return 0
 
 

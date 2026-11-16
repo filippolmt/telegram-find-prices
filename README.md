@@ -5,9 +5,10 @@ Telegram bot that monitors channels and notifies you when a product you're looki
 ## Features
 
 - `/start` - Register your account
-- `/add_channel` - Add a channel to monitor (public or invite link); `/add_channel @channel` skips the question
-- `/remove_channel` - Remove a channel from monitoring (keeps the Telegram subscription)
-- `/list_channels` - Show your monitored channels
+- `/add_channel` - Add a channel to monitor (public or invite link); `/add_channel @channel` skips the question. Only the owner adds channels; with `CHANNEL_FOLDER` other users file a request the owner approves or rejects
+- `/remove_channel` - Stop monitoring a channel: the owner's account leaves it. Other users file a request, as for `/add_channel`
+- `/list_channels` - Show the monitored channels, shared by every user, and your pending requests
+- `/requests` - Owner only: pending channel requests, each with Approve/Reject buttons (a rejection asks for a reason, sent to the requesters)
 - `/watch` - Add a product to monitor by name or Amazon product link (with optional target price and category); `/watch <name or link>` skips the first question. A product added by link also matches posts that link to it through Amazon short links (`link.amazon`, `amzn.to`, `amzn.eu`) or the `amzlink.to` shortener
 - `/list_products` - Show your monitored products
 - `/unwatch` - Remove a product from monitoring
@@ -58,7 +59,7 @@ ALLOWED_USERS=12345678
 
 Use a separate bot (its own `BOT_TOKEN`) for local development, so a local instance never runs alongside the production one on the same bot.
 
-`CHANNEL_FOLDER` (optional) names a Telegram folder of the user client's account: its channels are monitored for that account as if each had been added with `/add_channel`, and a channel removed from the folder stops being monitored (the account never leaves it). Channels added by hand are never removed this way. Only the channels listed in the folder count, not its rules (e.g. "all channels"). The account must be in `ALLOWED_USERS` and have sent `/start` to the bot. The folder is read at startup, when the account sends `/start`, whenever the folder changes, and every 10 minutes: a channel moved in or out takes effect within 10 minutes at most.
+`CHANNEL_FOLDER` (optional) names a Telegram folder of the owner's account (the user client's): it holds exactly the monitored channels. The owner's `/add_channel` and `/remove_channel`, and approved requests, add the channel to it or take it out; a channel the owner moves in or out by hand in Telegram starts or stops being monitored (the account does not leave it). Only the channels listed in the folder count, not its rules (e.g. "all channels"). Without it, users cannot file channel requests and the monitored channels are those the owner adds with `/add_channel`. The owner must be listed in `ALLOWED_USERS`: while nobody is owner, the folder is not read and the monitored channels stay as they are. The folder is read at startup, when the owner sends `/start`, whenever the folder changes, and every 10 minutes. A folder holds at most 100 chats (200 with Premium): when it is full, adding a channel fails and the owner is told.
 
 All available variables and their defaults are in [`src/config.py`](src/config.py).
 
@@ -105,7 +106,8 @@ Open [@BotFather](https://t.me/BotFather), select your bot with `/mybots`, then 
 start - Register your account
 add_channel - Add a channel to monitor
 remove_channel - Remove a channel from monitoring
-list_channels - Show your monitored channels
+list_channels - Show the monitored channels
+requests - Pending channel requests (owner)
 watch - Add a product to monitor
 list_products - Show your monitored products
 unwatch - Remove a product from monitoring
@@ -157,9 +159,9 @@ You should see:
 
 ## How it works
 
-1. Add channels to monitor with `/add_channel` (supports public usernames and invite links), or put them in the folder named by `CHANNEL_FOLDER`
+1. The owner (the account of the user client) adds channels to monitor with `/add_channel` (supports public usernames and invite links), or puts them in the folder named by `CHANNEL_FOLDER`; other users ask with `/add_channel` and `/remove_channel` when there is a folder. Monitored channels are shared by every user
 2. Add products with `/watch` (optionally with a target price and category)
-3. When a message in a monitored channel mentions a product, you receive a notification via bot
+3. When a message in a monitored channel mentions a product, every authorized user watching it receives a notification via bot
 4. If you set a target price, you only get notified when the price found is at or below the target
 5. Fuzzy matching handles hyphens, underscores, and extra spaces in product names
 6. Price history is tracked and a daily summary is sent at a configurable time
@@ -178,7 +180,8 @@ src/
   bot_commands.py             # Bot command handlers
   client_commands.py          # Telegram client operations
   channel_listener.py         # Channel message listener
-  channel_folder.py           # Channel folder (CHANNEL_FOLDER): links its channels
+  channel_folder.py           # Channel folder (CHANNEL_FOLDER): holds exactly the monitored channels
+  channel_requests.py         # Channel requests waiting for the owner
   price_parser.py             # European price format parser
   scheduler.py                # Daily summary scheduler
   translations.py             # i18n: message translations (en/it)

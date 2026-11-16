@@ -2,11 +2,12 @@
 Tests for database.run_migrations().
 """
 
+import pytest
 from sqlalchemy import create_engine, inspect, text
 
 import database
 from database import Base
-from models import PriceHistory, Product, User, UserChannel
+from models import PriceHistory, Product, User
 
 
 def test_migration_removes_rows_with_dangling_references(db_engine, db_session_factory, monkeypatch):
@@ -27,15 +28,12 @@ def test_migration_removes_rows_with_dangling_references(db_engine, db_session_f
             "INSERT INTO price_history (product_id, user_id, channel, message_text, source, found_at) "
             "VALUES (999, 100, 'Ch', 'orphan', 'realtime', '2026-01-01')"
         ))
-        # A product of a user that no longer exists, with its own match, and a dangling channel link.
+        # A product of a user that no longer exists, with its own match.
         conn.execute(text("INSERT INTO products (id, user_id, name, added_at) VALUES (50, 999, 'ghost', '2026-01-01')"))
         conn.execute(text(
             "INSERT INTO price_history (product_id, user_id, channel, message_text, source, found_at) "
             "VALUES (50, 999, 'Ch', 'ghost match', 'realtime', '2026-01-01')"
         ))
-        conn.execute(text("INSERT INTO channels (id, identifier, added_at) VALUES (1, 'deals', '2026-01-01')"))
-        conn.execute(text("INSERT INTO user_channels (user_id, channel_id) VALUES (100, 999)"))
-        conn.execute(text("INSERT INTO user_channels (user_id, channel_id) VALUES (999, 1)"))
         conn.commit()
         conn.exec_driver_sql("PRAGMA foreign_keys=ON")
 
@@ -45,7 +43,6 @@ def test_migration_removes_rows_with_dangling_references(db_engine, db_session_f
     with db_session_factory() as session:
         assert [(h.product_id, h.message_text) for h in session.query(PriceHistory)] == [(kept_product_id, "kept")]
         assert [p.name for p in session.query(Product)] == ["airpods"]
-        assert session.query(UserChannel).count() == 0
 
 
 def test_every_foreign_key_cascades():
@@ -65,3 +62,38 @@ def test_migration_adds_products_asin(monkeypatch):
     columns = [c["name"] for c in inspect(engine).get_columns("products")]
     engine.dispose()
     assert "asin" in columns
+
+
+@pytest.fixture
+def old_user_links(monkeypatch):
+    """A DB from before shared channels: the owner (100) linked 'deals', another user (200) 'friends_pick'.
+
+    Disposed even when the test fails: an open connection warns at garbage collection, failing a later test.
+    """
+    engine = create_engine("sqlite:///:memory:")
+    with engine.begin() as conn:
+        conn.execute(text("CREATE TABLE channels (id INTEGER PRIMARY KEY, identifier VARCHAR, title VARCHAR, added_at VARCHAR)"))
+        conn.execute(text("CREATE TABLE user_channels (user_id INTEGER, channel_id INTEGER, from_folder BOOLEAN)"))
+        conn.execute(text("INSERT INTO channels VALUES (1, 'deals', NULL, '2026-01-01'), (2, 'friends_pick', NULL, '2026-01-01')"))
+        conn.execute(text("INSERT INTO user_channels VALUES (100, 1, 0), (200, 2, 0)"))
+    monkeypatch.setattr(database, "engine", engine)
+    yield engine
+    engine.dispose()
+
+
+def _state(engine):
+    with engine.connect() as conn:
+        channels = [r.identifier for r in conn.execute(text("SELECT identifier FROM channels ORDER BY id"))]
+    return channels, "user_channels" in inspect(engine).get_table_names()
+
+
+def test_shared_channels_migration_keeps_only_the_owners_channels(old_user_links):
+    database.migrate_to_shared_channels(owner_id=100)
+
+    assert _state(old_user_links) == (["deals"], False)
+
+
+def test_shared_channels_migration_waits_while_nobody_is_owner(old_user_links):
+    database.migrate_to_shared_channels(owner_id=None)
+
+    assert _state(old_user_links) == (["deals", "friends_pick"], True)

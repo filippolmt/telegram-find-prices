@@ -1,20 +1,26 @@
 """
-Link the owner to the channels of the Channel folder (CHANNEL_FOLDER), and unlink those that leave it.
+The Channel folder (CHANNEL_FOLDER): it holds exactly the monitored channels.
 """
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 
-from sqlalchemy import func
-from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient, events
 from telethon.errors import ChannelPrivateError, RPCError
-from telethon.tl.functions.messages import GetDialogFiltersRequest
-from telethon.tl.types import InputPeerChannel, UpdateDialogFilter, UpdateDialogFilters
+from telethon.tl.functions.messages import (
+    GetDialogFiltersRequest,
+    UpdateDialogFilterRequest,
+)
+from telethon.tl.types import (
+    DialogFilter,
+    InputPeerChannel,
+    UpdateDialogFilter,
+    UpdateDialogFilters,
+)
 
-from client_commands import ClientCommands
-from config import Config, is_authorized
-from models import Channel, User, UserChannel
+from client_commands import ClientCommands, peer_key
+from models import channel_label, stored_identifier
 
 log = logging.getLogger(__name__)
 
@@ -24,14 +30,18 @@ _RULE_FLAGS = ("contacts", "non_contacts", "groups", "broadcasts", "bots")
 POLL_SECONDS = 600
 
 
-class ChannelFolder:
-    """Link the folder's channels to the owner (the user client's account) and unlink those that leave it."""
+class FolderMissingError(Exception):
+    """The account has no folder with the configured name."""
 
-    def __init__(self, client: TelegramClient, client_commands: ClientCommands,
-                 db_session_factory: sessionmaker, folder_name: str):
+
+class ChannelFolder:
+    """Keep the monitored channels equal to the folder's channels."""
+
+    def __init__(self, client: TelegramClient, client_commands: ClientCommands, folder_name: str):
         self.client = client
         self._commands = client_commands
-        self._session_factory = db_session_factory
+        # Awaited with the channels a sync found entering and leaving the folder, as {identifier: label}
+        self.on_changed: Callable[[dict[str, str], dict[str, str]], Awaitable[None]] | None = None
         self.folder_name = folder_name
         self._lock = asyncio.Lock()
 
@@ -49,45 +59,61 @@ class ChannelFolder:
             await asyncio.sleep(POLL_SECONDS)
             await self.sync()
 
-    async def owner_id(self) -> int:
-        """The bot owner: the user client's account, whose folder this is."""
-        return (await self.client.get_me()).id
-
     async def sync(self) -> int | None:
-        """Read the folder and update the owner's links; return its channel count, None if it was not read."""
-        # A folder update while the folder is being read (e.g. at startup) must not link and backfill twice
+        """Read the folder and update the monitored channels; return its channel count, None if it was not read."""
+        # A folder update while the folder is being read (e.g. at startup) must not backfill a channel twice
         async with self._lock:
             try:
                 return await self._sync()
             except RPCError as e:
-                # Nothing was unlinked: a partial channel list must never pass for the whole folder
+                # Nothing was removed: a partial channel list must never pass for the whole folder
                 log.error("Channel folder '%s': update failed: %s", self.folder_name, e)
             except Exception:
                 # Awaited at startup: a failure here must not take the bot down
                 log.exception("Channel folder '%s': update failed", self.folder_name)
 
-    async def _sync(self) -> int | None:
-        owner_id = await self.owner_id()
-        if not is_authorized(owner_id, Config.ALLOWED_USERS, Config.ALLOW_ALL_USERS):
-            # Fail closed: the folder's links would keep notifying an owner no longer allowed
-            log.warning("Channel folder '%s': the account owner (user_id=%s) is not in ALLOWED_USERS, "
-                        "removing the folder's channels", self.folder_name, owner_id)
-            self._unlink_left(owner_id, [])
-            return
-        with self._session_factory() as session:
-            registered = session.query(User).filter_by(user_id=owner_id).first() is not None
-        if not registered:
-            log.warning("Channel folder '%s': the account owner (user_id=%s) has not registered: "
-                        "send /start to the bot first", self.folder_name, owner_id)
-            return
-        result = await self.client(GetDialogFiltersRequest())
-        # DialogFilterDefault ("All chats") has no title
-        folder = next((f for f in result.filters
-                       if getattr(f, "title", None) and f.title.text == self.folder_name), None)
+    async def add(self, identifier: str, title: str | None) -> bool:
+        """Put a channel the account has joined into the folder and monitor it; return whether it was not monitored.
+
+        Raises FolderMissingError or RPCError (e.g. the folder is full), and then nothing changed.
+        """
+        async with self._lock:
+            await self._write(identifier, include=True)
+            return self._commands.monitor(identifier, title)
+
+    async def remove(self, identifier: str) -> bool:
+        """Take a channel out of the folder and stop monitoring it; return whether it was monitored. Raises as add()."""
+        async with self._lock:
+            await self._write(identifier, include=False)
+            return self._commands.unmonitor(identifier)
+
+    async def _write(self, identifier: str, include: bool) -> None:
+        folder = await self._read()
         if folder is None:
-            log.warning("Channel folder '%s': the account has no folder with this name, nothing changed",
-                        self.folder_name)
+            raise FolderMissingError(self.folder_name)
+        peer = await self.client.get_input_entity(peer_key(identifier))
+
+        def others(peers):
+            # Peers that are not this channel, bots and groups included, go back unchanged
+            return [p for p in peers if not (isinstance(p, InputPeerChannel) and p.channel_id == peer.channel_id)]
+
+        listed = len(others(folder.pinned_peers + folder.include_peers)) < len(folder.pinned_peers + folder.include_peers)
+        if listed == include:
             return
+        folder.pinned_peers = others(folder.pinned_peers)
+        folder.include_peers = others(folder.include_peers) + ([peer] if include else [])
+        # The request replaces the whole folder: everything else is sent back as read
+        await self.client(UpdateDialogFilterRequest(id=folder.id, filter=folder))
+
+    async def _sync(self) -> int | None:
+        if await self._commands.owner_id() is None:
+            # The folder is the owner's choice: without an owner, the monitored channels stay as they are
+            log.warning("Channel folder '%s': nobody is owner (account not in ALLOWED_USERS, or unreachable), "
+                        "nothing changed", self.folder_name)
+            return None
+        folder = await self._read()
+        if folder is None:
+            return None
 
         rules = [r for r in _RULE_FLAGS if getattr(folder, r, None)]
         if rules:
@@ -106,27 +132,26 @@ class ChannelFolder:
                             self.folder_name, peer.channel_id)
                 continue
             # Same identifier join_channel() stores, so ChannelListener matches it
-            channels[entity.username or str(entity.id)] = entity.title
+            channels[stored_identifier(entity)] = entity.title
 
-        entered = [identifier for identifier, title in channels.items()
-                   if self._commands.link_channel(owner_id, identifier, title, from_folder=True)]
-        self._unlink_left(owner_id, list(channels))
-        log.info("Channel folder '%s': %d channels, %d new", self.folder_name, len(channels), len(entered))
+        entered = [identifier for identifier, title in channels.items() if self._commands.monitor(identifier, title)]
+        # The account stays in a channel taken out of the folder by hand: only the bot's removals leave
+        left = self._commands.keep_monitoring_only(list(channels))
+        log.info("Channel folder '%s': %d channels, %d new, %d gone", self.folder_name, len(channels), len(entered), len(left))
+        if (entered or left) and self.on_changed:
+            await self.on_changed({i: channel_label(i, channels[i]) for i in entered}, left)
         # Sequential: a large folder read for the first time would otherwise hit FloodWait at once
         for identifier in entered:
-            await self._commands.backfill_channel(identifier, owner_id)
+            await self._commands.backfill_channel(identifier)
         return len(channels)
 
-    def _unlink_left(self, owner_id: int, identifiers: list[str]):
-        """Unlink the folder's links whose channel is no longer in it; links made by hand stay."""
-        with self._session_factory() as session:
-            left = (
-                session.query(UserChannel)
-                .join(Channel, Channel.id == UserChannel.channel_id)
-                .filter(UserChannel.user_id == owner_id, UserChannel.from_folder.is_(True),
-                        func.lower(Channel.identifier).not_in([i.lower() for i in identifiers]))
-                .all()
-            )
-            for link in left:
-                session.delete(link)
-            session.commit()
+    async def _read(self) -> DialogFilter | None:
+        """The folder as Telegram holds it, None (logged) if the account has none with this name."""
+        result = await self.client(GetDialogFiltersRequest())
+        # DialogFilterDefault ("All chats") has no title
+        folder = next((f for f in result.filters
+                       if getattr(f, "title", None) and f.title.text == self.folder_name), None)
+        if folder is None:
+            log.warning("Channel folder '%s': the account has no folder with this name, nothing changed",
+                        self.folder_name)
+        return folder

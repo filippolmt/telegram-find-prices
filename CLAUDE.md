@@ -24,7 +24,7 @@ Two Telegram clients run in one process, wired in `bot.py:main()`:
 - Classes take a `sessionmaker` factory, never a `Session`.
 - Modules in `src/` import each other as top-level modules (`from config import Config`); `tests/conftest.py` puts `src/` on `sys.path`.
 - Foreign keys are enforced and every one is `ondelete="CASCADE"` (`test_every_foreign_key_cascades`). Models have no `relationship()`, so in tests `flush()` a parent row (`User`, `Channel`, `Product`) before adding its children.
-- Schema changes go in `run_migrations()` in `database.py` (adds missing columns and removes orphaned rows at startup). There is no Alembic.
+- Schema changes go in `run_migrations()` in `database.py` (adds missing columns and removes orphaned rows at startup). There is no Alembic. A migration that needs the owner runs after the user client is ready (`migrate_to_shared_channels()` in `bot.py:main()`).
 - Code, comments and logs are in English. User-facing strings live only in `src/translations.py`; to add a language, add its code to `SUPPORTED_LANGUAGES` and a full `MESSAGES` entry. `test_translations.py` fails on missing keys.
 - Runtime files (`data/`: DB, sessions) are created `600`/`700` by `os.umask(0o077)` in `config.py`; existing ones are reset to `600`/`700` at startup by `tighten_permissions()`.
 - `filterwarnings = ["error"]` in `pyproject.toml`: a new warning fails the suite.
@@ -37,7 +37,8 @@ Keep these true in every change:
 - Unauthorized senders are never written to the DB.
 - User-supplied channel identifiers and invite hashes are validated by regex before reaching the Telegram API; invite hashes are logged truncated.
 - RPC errors are logged server-side; users get generic messages.
-- Notifications go only to users subscribed to the channel and not paused.
+- Notifications go only to authorized users who are not paused.
+- Only the owner (the user client's account, if listed in `ALLOWED_USERS`: `ALLOW_ALL_USERS` is not enough; nobody if `get_me()` fails) changes the monitored channels: commands and Approve/Reject buttons check it when they run.
 
 ## Production
 

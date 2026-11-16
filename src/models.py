@@ -4,15 +4,18 @@ Database models (SQLAlchemy ORM).
 
 from datetime import datetime, timezone
 from enum import StrEnum
+from typing import NamedTuple
 
 from sqlalchemy import (
     Boolean,
     Column,
+    ColumnElement,
     Float,
     ForeignKey,
     Integer,
     String,
     UniqueConstraint,
+    func,
 )
 
 from database import Base
@@ -42,16 +45,60 @@ class Channel(Base):
                       default=lambda: datetime.now(timezone.utc).isoformat())
 
 
-class UserChannel(Base):
-    """User-channel association (many-to-many)."""
-    __tablename__ = "user_channels"
+def identifier_in(column, identifiers: list[str]) -> ColumnElement[bool]:
+    """SQL condition: the column holds one of these channel identifiers. Usernames are case-insensitive on
+    Telegram, and older rows hold them as the user typed them."""
+    return func.lower(column).in_([i.lower() for i in identifiers])
 
+
+def channel_label(identifier: str, title: str | None) -> str:
+    """How a channel is shown to users: 'title (identifier)', or the identifier alone."""
+    return f"{title} ({identifier})" if title else identifier
+
+
+def stored_identifier(chat) -> str:
+    """The identifier a Telegram channel is stored by: its username, else its bare numeric id."""
+    return getattr(chat, "username", None) or str(chat.id)
+
+
+class ChannelInfo(NamedTuple):
+    """A channel as Channel.identifier stores it, and its title; identifier None for an invite to a channel the
+    account is not in."""
+    identifier: str | None
+    title: str | None
+
+    @property
+    def label(self) -> str:
+        return channel_label(self.identifier, self.title)
+
+
+class ChannelRequest(Base):
+    """A pending Channel request: decided ones are deleted, invite hash included."""
+    __tablename__ = "channel_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    action = Column(String, nullable=False)  # ChannelRequestAction
+    # Username or numeric id as Channel.identifier stores it; None for an invite to a channel the account is not in
+    identifier = Column(String, nullable=True)
+    invite_hash = Column(String, nullable=True)
+    title = Column(String, nullable=True)
+    added_at = Column(String, nullable=False,
+                      default=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class ChannelRequestAction(StrEnum):
+    ADD = "add"
+    REMOVE = "remove"
+
+
+class ChannelRequester(Base):
+    """A user waiting for a Channel request: the first one filed it, the others joined it."""
+    __tablename__ = "channel_requesters"
+
+    request_id = Column(Integer, ForeignKey(
+        "channel_requests.id", ondelete="CASCADE"), primary_key=True)
     user_id = Column(Integer, ForeignKey(
         "users.user_id", ondelete="CASCADE"), primary_key=True)
-    channel_id = Column(Integer, ForeignKey(
-        "channels.id", ondelete="CASCADE"), primary_key=True)
-    # Linked by the Channel folder, which unlinks it when it leaves; False once the user adds it by hand
-    from_folder = Column(Boolean, nullable=False, default=False, server_default="0")
 
 
 class Product(Base):

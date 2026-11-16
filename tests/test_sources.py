@@ -19,7 +19,7 @@ from telethon.tl.types import (
 from channel_listener import ChannelListener
 from client_commands import ClientCommands
 from match_recorder import message_text
-from models import Channel, PriceHistory, Product, User, UserChannel
+from models import Channel, PriceHistory, Product, User
 
 TEXT = "iPhone 15 a 499€\nVisualizza offerta su Amazon"
 CHAT = SimpleNamespace(title="Deals", username="deals", id=123)
@@ -45,7 +45,6 @@ def _setup(db_session_factory):
     with db_session_factory() as session:
         session.add_all([User(user_id=100), Channel(identifier="deals")])
         session.flush()
-        session.add(UserChannel(user_id=100, channel_id=session.query(Channel).one().id))
         session.add_all([
             Product(user_id=100, name="iPhone 15", target_price=600),
             Product(user_id=100, name="B0LINKTEXT"),
@@ -73,7 +72,7 @@ async def test_backfill_and_realtime_match_formatted_post_the_same(db_session_fa
     client = MagicMock()
     client.get_entity = AsyncMock(return_value=CHAT)
     client.iter_messages = iter_messages
-    await ClientCommands(client, db_session_factory, bot_client).backfill_channel("deals", 100)
+    await ClientCommands(client, db_session_factory, bot_client).backfill_channel("deals")
 
     handlers = []
     listener_client = MagicMock()

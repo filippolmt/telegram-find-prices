@@ -23,7 +23,13 @@ from channel_folder import ChannelFolder
 from channel_listener import ChannelListener
 from client_commands import ClientCommands
 from config import Config
-from database import Base, SessionLocal, engine, run_migrations
+from database import (
+    Base,
+    SessionLocal,
+    engine,
+    migrate_to_shared_channels,
+    run_migrations,
+)
 from scheduler import DailySummaryScheduler
 
 
@@ -69,7 +75,7 @@ async def main():
     bot_client = create_client(bot_session_name, api_id, api_hash)
     client = create_client(client_session_name, api_id, api_hash, session_string=cf.CLIENT_SESSION_STRING)
     client_commands = ClientCommands(client, SessionLocal, bot_client)
-    channel_folder = ChannelFolder(client, client_commands, SessionLocal, cf.CHANNEL_FOLDER) if cf.CHANNEL_FOLDER else None
+    channel_folder = ChannelFolder(client, client_commands, cf.CHANNEL_FOLDER) if cf.CHANNEL_FOLDER else None
     bot_commands = BotCommands(bot_client, client_commands, SessionLocal, channel_folder)
 
     try:
@@ -89,6 +95,7 @@ async def main():
     if not await user_client_ready(client):
         return
     log.info("Client started!")
+    migrate_to_shared_channels(await client_commands.owner_id())
     ChannelListener(client, bot_client, SessionLocal).register()
     log.info("Channel listener active!")
 

@@ -5,7 +5,7 @@ Telegram user client commands (join/leave channels, backfill).
 import asyncio
 import logging
 
-from sqlalchemy import func
+from sqlalchemy import not_
 from sqlalchemy.orm import sessionmaker
 from telethon import TelegramClient
 from telethon.errors import FloodWaitError, RPCError, UserAlreadyParticipantError
@@ -15,13 +15,30 @@ from telethon.tl.functions.messages import (
     ImportChatInviteRequest,
 )
 
-from match_recorder import MatchRecorder, build_message_link, message_text
-from models import Channel, MatchSource, Product, UserChannel
-from translations import DEFAULT_LANGUAGE, t
+from config import Config
+from match_recorder import (
+    MatchRecorder,
+    authorized_products,
+    build_message_link,
+    message_text,
+)
+from models import (
+    Channel,
+    ChannelInfo,
+    MatchSource,
+    channel_label,
+    identifier_in,
+    stored_identifier,
+)
 
 log = logging.getLogger(__name__)
 
 BACKFILL_FLOOD_RETRIES = 3
+
+
+def peer_key(identifier: str) -> str | int:
+    """What Telethon resolves a Channel.identifier by: a username, or a private channel's bare numeric id."""
+    return int(identifier) if identifier.isdigit() else identifier
 
 
 class ClientCommands:
@@ -32,30 +49,29 @@ class ClientCommands:
         self._session_factory = db_session_factory
         self._recorder = MatchRecorder(bot_client, db_session_factory, client)
 
-    async def list_channels(self, user_id: int) -> list[str]:
-        """Return the list of channels associated with the given user."""
-        with self._session_factory() as session:
-            user_channels = (
-                session.query(Channel.identifier, Channel.title)
-                .join(UserChannel, UserChannel.channel_id == Channel.id)
-                .filter(UserChannel.user_id == user_id)
-                .all()
-            )
-            result = []
-            for ch in user_channels:
-                if ch.title:
-                    result.append(f"{ch.title} ({ch.identifier})")
-                else:
-                    result.append(ch.identifier)
-            return result
+    async def owner_id(self) -> int | None:
+        """The owner: the account of the user client, when listed in ALLOWED_USERS (ALLOW_ALL_USERS is not enough).
 
-    async def join_channel(self, channel_identifier: str, user_id: int, invite_hash: str = None, lang: str = DEFAULT_LANGUAGE) -> tuple[bool, str, str]:
-        """Join a channel (by username or invite hash).
-
-        Returns (success, status_message, db_identifier).
+        None, nobody, if it is not or the account cannot be read.
         """
+        try:
+            owner = (await self.client.get_me()).id
+        except Exception as e:
+            log.error("Owner lookup failed, nobody is owner: %s", e)
+            return None
+        return owner if owner in Config.ALLOWED_USERS else None
+
+    def monitored_channels(self) -> list[ChannelInfo]:
+        with self._session_factory() as session:
+            return [ChannelInfo(c.identifier, c.title) for c in session.query(Channel).order_by(Channel.id)]
+
+    def list_channels(self) -> list[str]:
+        """Labels of the monitored channels: 'title (identifier)', or the identifier alone."""
+        return [c.label for c in self.monitored_channels()]
+
+    async def join_channel(self, channel_identifier: str, invite_hash: str = None) -> ChannelInfo | None:
+        """Join a channel (by username or invite hash) without monitoring it; None if Telegram refused."""
         db_identifier = channel_identifier
-        display_name = channel_identifier
         channel_title = None
 
         try:
@@ -67,9 +83,8 @@ class ClientCommands:
                     result = await self.client(CheckChatInviteRequest(invite_hash))
                     chat = result.chat
 
-                db_identifier = str(chat.id)
+                db_identifier = stored_identifier(chat)
                 channel_title = getattr(chat, "title", None)
-                display_name = channel_title or f"Channel {db_identifier}"
             else:
                 await self.client(JoinChannelRequest(channel_identifier))
                 try:
@@ -82,47 +97,75 @@ class ClientCommands:
         except RPCError as e:
             target = channel_identifier or f"invite {invite_hash[:4]}…"
             log.error("JoinChannel error for '%s': %s", target, e)
-            return False, t("join_channel_failed", lang), ""
+            return None
+        return ChannelInfo(db_identifier, channel_title)
 
-        self.link_channel(user_id, db_identifier, channel_title)
+    async def check_invite(self, invite_hash: str) -> ChannelInfo | None:
+        """The channel behind an invite, without joining it: its identifier only if the account is in it.
 
-        return True, t("join_channel_success", lang, channel=display_name), db_identifier
-
-    def link_channel(self, user_id: int, identifier: str, title: str | None, from_folder: bool = False) -> bool:
-        """Link a channel to the user, creating it if unknown; return whether the link is new.
-
-        A link made by hand (from_folder=False) is never unlinked by the Channel folder, even if the folder made it.
+        None if Telegram refused the invite (invalid, expired).
         """
+        try:
+            result = await self.client(CheckChatInviteRequest(invite_hash))
+        except RPCError as e:
+            log.error("CheckChatInvite error for invite %s…: %s", invite_hash[:4], e)
+            return None
+        chat = getattr(result, "chat", None)
+        if chat is None:
+            return ChannelInfo(None, getattr(result, "title", None))
+        return ChannelInfo(stored_identifier(chat), getattr(chat, "title", None))
+
+    def find_channel(self, identifier: str) -> ChannelInfo | None:
+        """The monitored channel with this identifier."""
         with self._session_factory() as session:
-            # Usernames are case-insensitive on Telegram
-            channel = (
-                session.query(Channel)
-                .filter(func.lower(Channel.identifier) == identifier.lower())
-                .order_by(Channel.id)  # rows saved before this check may differ only in case: take the oldest
-                .first()
-            )
+            channel = self._find(session, identifier)
+            return channel and ChannelInfo(channel.identifier, channel.title)
+
+    @staticmethod
+    def _find(session, identifier: str) -> Channel | None:
+        # Usernames are case-insensitive on Telegram
+        return (
+            session.query(Channel)
+            .filter(identifier_in(Channel.identifier, [identifier]))
+            .order_by(Channel.id)  # rows saved before this check may differ only in case: take the oldest
+            .first()
+        )
+
+    def monitor(self, identifier: str, title: str | None) -> bool:
+        """Make a channel monitored; return whether it was not already."""
+        with self._session_factory() as session:
+            channel = self._find(session, identifier)
             if channel is None:
-                channel = Channel(identifier=identifier, title=title)
-                session.add(channel)
-                session.flush()
+                session.add(Channel(identifier=identifier, title=title))
             elif title and not channel.title:
                 channel.title = title
-
-            link = session.get(UserChannel, (user_id, channel.id))
-            if link is None:
-                session.add(UserChannel(user_id=user_id, channel_id=channel.id, from_folder=from_folder))
-            elif not from_folder:
-                link.from_folder = False
             session.commit()
-            return link is None
+            return channel is None
 
-    async def backfill_channel(self, channel_identifier: str, user_id: int, limit: int = 200) -> int:
-        """Scan the last N messages of a channel for product matches.
+    def unmonitor(self, identifier: str) -> bool:
+        """Stop monitoring a channel, the account stays in it; return whether it was monitored."""
+        with self._session_factory() as session:
+            deleted = session.query(Channel).filter(identifier_in(Channel.identifier, [identifier])).delete()
+            session.commit()
+            return deleted > 0
+
+    def keep_monitoring_only(self, identifiers: list[str]) -> dict[str, str]:
+        """Stop monitoring every channel but these; return the ones stopped, as {identifier: label}."""
+        with self._session_factory() as session:
+            gone = session.query(Channel).filter(not_(identifier_in(Channel.identifier, identifiers))).all()
+            labels = {c.identifier: channel_label(c.identifier, c.title) for c in gone}
+            for channel in gone:
+                session.delete(channel)
+            session.commit()
+            return labels
+
+    async def backfill_channel(self, channel_identifier: str, limit: int = 200) -> int:
+        """Scan the last N messages of a channel for every authorized user's products.
 
         Returns the number of matches found.
         """
         with self._session_factory() as session:
-            products = session.query(Product).filter_by(user_id=user_id).all()
+            products = authorized_products(session)
             # Detached so the recorder can read them after this session closes.
             session.expunge_all()
         if not products:
@@ -173,14 +216,14 @@ class ClientCommands:
         except RPCError as e:
             log.error("Backfill error for channel '%s': %s", channel_identifier, e)
 
-        log.info("Backfill '%s' for user_id=%s: %d matches", channel_identifier, user_id, matches_found)
+        log.info("Backfill '%s': %d matches", channel_identifier, matches_found)
         return matches_found
 
-    async def leave_channel(self, channel_identifier: str, lang: str = DEFAULT_LANGUAGE) -> str:
-        """Leave a channel."""
+    async def leave_channel(self, channel_identifier: str) -> bool:
+        """Make the account leave a channel; False (logged) if Telegram refused."""
         try:
-            await self.client(LeaveChannelRequest(channel_identifier))
-            return t("leave_channel_success", lang, channel=channel_identifier)
+            await self.client(LeaveChannelRequest(peer_key(channel_identifier)))
+            return True
         except RPCError as e:
             log.error("LeaveChannel error for '%s': %s", channel_identifier, e)
-            return t("leave_channel_failed", lang)
+            return False

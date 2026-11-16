@@ -53,3 +53,12 @@ def http(monkeypatch):
     monkeypatch.setattr(amazon, "_location", fake_location)
     monkeypatch.setattr(amazon, "_cache", {})
     return redirects, requested
+
+
+@pytest.fixture(autouse=True)
+def every_user_allowed(monkeypatch):
+    """Tests run with every user authorized, whatever the local .env says; a test narrows it with monkeypatch."""
+    from config import Config
+
+    monkeypatch.setattr(Config, "ALLOWED_USERS", [])
+    monkeypatch.setattr(Config, "ALLOW_ALL_USERS", True)

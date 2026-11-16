@@ -20,6 +20,7 @@ from telethon.tl.custom.message import Message
 from telethon.tl.types import InlineButtonTypeUrl, MessageEntityTextUrl
 
 from amazon import message_asin_by_url, urls_in_text
+from config import Config, is_authorized
 from models import MatchSource, PriceHistory, Product, User
 from price_parser import extract_prices, is_price_only
 from translations import DEFAULT_LANGUAGE, t
@@ -186,6 +187,12 @@ def check_product_match(product: Product, message_text: str, asin_by_url: Mappin
         return {"matched": True, "price_found": price, "target_price": product.target_price, "offer_url": offer_url}
 
     return {"matched": True, "price_found": None, "target_price": None, "offer_url": offer_url}
+
+
+def authorized_products(session) -> list[Product]:
+    """The products matched against every monitored channel: those of users still authorized, paused included."""
+    return [p for p in session.query(Product).order_by(Product.id)
+            if is_authorized(p.user_id, Config.ALLOWED_USERS, Config.ALLOW_ALL_USERS)]
 
 
 class MessageLink(NamedTuple):
