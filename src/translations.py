@@ -7,6 +7,21 @@ DEFAULT_LANGUAGE = "en"
 
 MESSAGES = {
     "en": {
+        # Command menu (published at startup)
+        "command_start": "Register your account",
+        "command_add_channel": "Add a channel to monitor",
+        "command_list_channels": "Show the monitored channels",
+        "command_requests": "Pending channel requests (owner)",
+        "command_remove_channel": "Remove a channel from monitoring",
+        "command_watch": "Add a product to monitor",
+        "command_list_products": "Show your monitored products",
+        "command_unwatch": "Remove a product from monitoring",
+        "command_history": "View price history for a product",
+        "command_pause": "Pause notifications",
+        "command_resume": "Resume notifications",
+        "command_stats": "View your statistics",
+        "command_list_categories": "Show products grouped by category",
+
         # Auth / generic
         "not_authorized": "You are not authorized to use this bot.",
         "users_only": "This bot works only for user accounts, in a private chat.",
@@ -130,6 +145,21 @@ MESSAGES = {
     },
 
     "it": {
+        # Command menu (published at startup)
+        "command_start": "Registra il tuo account",
+        "command_add_channel": "Aggiungi un canale da monitorare",
+        "command_list_channels": "Mostra i canali monitorati",
+        "command_requests": "Richieste sui canali in attesa (proprietario)",
+        "command_remove_channel": "Togli un canale dal monitoraggio",
+        "command_watch": "Aggiungi un prodotto da monitorare",
+        "command_list_products": "Mostra i tuoi prodotti monitorati",
+        "command_unwatch": "Togli un prodotto dal monitoraggio",
+        "command_history": "Storico prezzi di un prodotto",
+        "command_pause": "Metti in pausa le notifiche",
+        "command_resume": "Riattiva le notifiche",
+        "command_stats": "Le tue statistiche",
+        "command_list_categories": "Prodotti per categoria",
+
         # Auth / generic
         "not_authorized": "Non sei autorizzato ad usare questo bot.",
         "users_only": "Questo bot funziona solo con account utente, in una chat privata.",

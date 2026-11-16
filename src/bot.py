@@ -82,6 +82,7 @@ async def main():
         if await bot_client.start(bot_token=bot_token):
             log.info("Bot started!")
             bot_commands.register_commands((await bot_client.get_me()).username)
+            await bot_commands.publish_commands()
         else:
             log.error("Failed to start the bot.")
             return
