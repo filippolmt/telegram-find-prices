@@ -56,6 +56,11 @@ def channel_label(identifier: str, title: str | None) -> str:
     return f"{title} ({identifier})" if title else identifier
 
 
+def stored_identifier(chat) -> str:
+    """The identifier a Telegram channel is stored by: its username, else its bare numeric id."""
+    return getattr(chat, "username", None) or str(chat.id)
+
+
 class ChannelInfo(NamedTuple):
     """A channel as Channel.identifier stores it, and its title; identifier None for an invite to a channel the
     account is not in."""

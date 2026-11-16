@@ -24,7 +24,7 @@ from channel_listener import ChannelListener
 from client_commands import ClientCommands
 from config import Config
 from database import Base
-from models import Channel, MatchSource, PriceHistory, Product, User
+from models import Channel, MatchSource, PriceHistory, Product, User, stored_identifier
 from user_session import channel_entity, user_client
 
 USERS = (1, 2)
@@ -62,7 +62,7 @@ async def main() -> int:
             session.flush()
             session.add_all(_parse_product(spec, user_id) for user_id in USERS for spec in args.product)
             # Same identifier join_channel stores: username, else the bare channel id
-            session.add_all(Channel(identifier=getattr(entity, "username", None) or str(entity.id), title=entity.title)
+            session.add_all(Channel(identifier=stored_identifier(entity), title=entity.title)
                             for entity in entities)
             session.commit()
 

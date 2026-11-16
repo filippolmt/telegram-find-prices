@@ -22,7 +22,14 @@ from match_recorder import (
     build_message_link,
     message_text,
 )
-from models import Channel, ChannelInfo, MatchSource, channel_label, identifier_in
+from models import (
+    Channel,
+    ChannelInfo,
+    MatchSource,
+    channel_label,
+    identifier_in,
+    stored_identifier,
+)
 
 log = logging.getLogger(__name__)
 
@@ -76,7 +83,7 @@ class ClientCommands:
                     result = await self.client(CheckChatInviteRequest(invite_hash))
                     chat = result.chat
 
-                db_identifier = getattr(chat, "username", None) or str(chat.id)
+                db_identifier = stored_identifier(chat)
                 channel_title = getattr(chat, "title", None)
             else:
                 await self.client(JoinChannelRequest(channel_identifier))
@@ -106,7 +113,7 @@ class ClientCommands:
         chat = getattr(result, "chat", None)
         if chat is None:
             return ChannelInfo(None, getattr(result, "title", None))
-        return ChannelInfo(getattr(chat, "username", None) or str(chat.id), getattr(chat, "title", None))
+        return ChannelInfo(stored_identifier(chat), getattr(chat, "title", None))
 
     def find_channel(self, identifier: str) -> ChannelInfo | None:
         """The monitored channel with this identifier."""

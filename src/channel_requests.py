@@ -19,7 +19,7 @@ from translations import resolve_lang
 
 class Filed(StrEnum):
     NEW = "new"
-    JOINED = "joined"  # another user's request for the same change
+    SECONDED = "seconded"  # another user's request for the same change: the user waits for it too
     ALREADY_PENDING = "already_pending"  # the user's own
     OTHER_PENDING = "other_pending"  # the opposite change waits for the owner
 
@@ -53,8 +53,8 @@ class ChannelRequests:
             elif session.get(ChannelRequester, (request.id, user_id)):
                 filed = Filed.ALREADY_PENDING
             else:
-                filed = Filed.JOINED
-            if filed in (Filed.NEW, Filed.JOINED):
+                filed = Filed.SECONDED
+            if filed in (Filed.NEW, Filed.SECONDED):
                 session.add(ChannelRequester(request_id=request.id, user_id=user_id))
             session.commit()
             session.refresh(request)  # loaded before detaching: the commit expired it

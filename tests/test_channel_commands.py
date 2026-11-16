@@ -479,3 +479,27 @@ async def test_concurrent_approvals_of_one_request_act_once(setup):
 
     assert sum(type(r).__name__ == "JoinChannelRequest" for r in client.requests) == 1
     assert (first.replies + second.replies).count(t("request_already_decided", "en")) == 1
+
+
+async def test_owner_add_channel_is_refused_if_the_account_is_no_longer_owner_when_the_channel_arrives(setup, monkeypatch):
+    bot, client = setup(folder(2))
+
+    def owner_removed_while_typing():
+        monkeypatch.setattr(Config, "ALLOWED_USERS", [FRIEND, OTHER])
+        return "@deals"
+
+    event = conversation_event([owner_removed_while_typing], user_id=OWNER)
+    await bot.bot_client.dispatch("/add_channel", event)
+
+    assert event.replies[-1] == t("channels_owner_only", "en")
+    assert client.joined == set()
+
+
+async def test_requester_no_longer_authorized_gets_no_answer(setup, monkeypatch):
+    bot, _ = setup(folder(2))
+    await _request(bot, "/add_channel @deals", FRIEND, OTHER)
+    monkeypatch.setattr(Config, "ALLOWED_USERS", [OWNER, OTHER])
+
+    await bot.bot_client.press(button_event("approve:1"))
+
+    assert [uid for uid, _, _ in bot.bot_client.sent] == [OTHER]

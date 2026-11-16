@@ -7,7 +7,7 @@ import logging
 import re
 from collections.abc import Awaitable, Callable
 from enum import StrEnum
-from typing import Optional, TypeVar
+from typing import Optional
 
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import sessionmaker
@@ -44,7 +44,6 @@ class Decision(StrEnum):
     APPROVE = "approve"
     REJECT = "reject"
 
-Changed = TypeVar("Changed")
 
 _CHANNEL_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9_]{3,31}$")
 _INVITE_HASH_RE = re.compile(r"^[a-zA-Z0-9_-]+$")
@@ -206,8 +205,7 @@ class BotCommands:
                 await event.respond(t("request_still_pending", owner.lang))
                 return
             # A request naming its channel was already answered when the channel's state changed
-            for user_id, lang in self.channel_requests.close(request.id) or []:
-                await self._send(user_id, t(f"request_approved_{request.action}", lang, channel=label))
+            await self._answer(request.id, lambda lang: t(f"request_approved_{request.action}", lang, channel=label))
 
     async def _reject(self, event, owner: CommandContext, request_id: int) -> None:
         request = self.channel_requests.get(request_id)
@@ -223,20 +221,39 @@ class BotCommands:
         if not reason:
             await event.respond(t("reject_reason_required", owner.lang))
             return
-        if owner.user_id != await self.client_commands.owner_id():
-            log.warning("Channel request %s: user_id=%s is no longer the owner, rejection refused", request.id, owner.user_id)
-            await event.respond(t("owner_only_button", owner.lang))
+        if not await self._still_owner(event, owner, "owner_only_button"):
             return
         async with self._decisions:
-            requesters = self.channel_requests.close(request.id)
-        if requesters is None:
+            answered = await self._answer(
+                request.id, lambda lang: t("request_rejected_requester", lang, channel=label, reason=reason))
+        if not answered:
             # Approved while the owner was typing the reason
             await event.respond(t("request_already_decided", owner.lang))
             return
         log.info("Channel request %s (%s): rejected", request.id, request.action)
-        for user_id, lang in requesters:
-            await self._send(user_id, t("request_rejected_requester", lang, channel=label, reason=reason))
         await event.respond(t("request_rejected", owner.lang, channel=label))
+
+    async def _answer(self, request_id: int, message: Callable[[str], str]) -> bool:
+        """Close a decided request and send message(language) to each requester still authorized.
+
+        False if it was already decided.
+        """
+        requesters = self.channel_requests.close(request_id)
+        if requesters is None:
+            return False
+        for user_id, lang in requesters:
+            # Read now, not the list this bot started with: a user taken out of ALLOWED_USERS hears nothing
+            if is_authorized(user_id, Config.ALLOWED_USERS, Config.ALLOW_ALL_USERS):
+                await self._send(user_id, message(lang))
+        return True
+
+    async def _still_owner(self, event, ctx: CommandContext, refusal_key: str) -> bool:
+        """Whether the owner who started a conversation is still the owner once it ends; refused and logged if not."""
+        if ctx.user_id == await self.client_commands.owner_id():
+            return True
+        log.warning("user_id=%s is no longer the owner when the conversation ends: refused", ctx.user_id)
+        await event.respond(t(refusal_key, ctx.lang))
+        return False
 
     async def _send(self, user_id: int, text: str, **kwargs) -> None:
         """Send a bot message; a user who never started or blocked the bot is logged, the others still hear."""
@@ -254,7 +271,7 @@ class BotCommands:
             return None
         return is_owner
 
-    async def _change_folder(self, respond, lang: str, failed_key: str, label: str, change: Awaitable[Changed]) -> Changed | None:
+    async def _change_folder(self, respond, lang: str, failed_key: str, label: str, change: Awaitable[bool]) -> bool | None:
         """Await a Channel folder change; None after telling respond it failed, whatever the error."""
         try:
             return await change
@@ -275,8 +292,8 @@ class BotCommands:
             label = done[request.action].get((request.identifier or "").lower())
             if label is None:
                 continue
-            for user_id, lang in self.channel_requests.close(request.id) or []:
-                await self._send(user_id, t(f"request_approved_{request.action}", lang, channel=label))
+            await self._answer(request.id, lambda lang, request=request, label=label:
+                               t(f"request_approved_{request.action}", lang, channel=label))
 
     def _lang_of(self, user_id: int) -> str:
         with self._session_factory() as session:
@@ -398,7 +415,8 @@ class BotCommands:
             # The invite hash grants channel access: never log it in full
             log.info("/add_channel '%s' from user_id=%s", identifier or f"invite {value[:4]}…", ctx.user_id)
             if is_owner:
-                await self._add_monitored(event.respond, ctx.lang, identifier or "", invite_hash)
+                if await self._still_owner(event, ctx, "channels_owner_only"):
+                    await self._add_monitored(event.respond, ctx.lang, identifier or "", invite_hash)
                 return
             channel = ChannelInfo(identifier, None)
             if invite_hash:
@@ -460,7 +478,8 @@ class BotCommands:
                 return
             log.info("/remove_channel '%s' from user_id=%s", chosen.identifier, ctx.user_id)
             if is_owner:
-                await self._remove_monitored(event.respond, ctx.lang, chosen.identifier)
+                if await self._still_owner(event, ctx, "channels_owner_only"):
+                    await self._remove_monitored(event.respond, ctx.lang, chosen.identifier)
             else:
                 await self._file_request(event.respond, ctx, ChannelRequestAction.REMOVE, chosen)
 

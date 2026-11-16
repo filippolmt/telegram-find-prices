@@ -20,7 +20,7 @@ from telethon.tl.types import (
 )
 
 from client_commands import ClientCommands, peer_key
-from models import channel_label
+from models import channel_label, stored_identifier
 
 log = logging.getLogger(__name__)
 
@@ -132,7 +132,7 @@ class ChannelFolder:
                             self.folder_name, peer.channel_id)
                 continue
             # Same identifier join_channel() stores, so ChannelListener matches it
-            channels[entity.username or str(entity.id)] = entity.title
+            channels[stored_identifier(entity)] = entity.title
 
         entered = [identifier for identifier, title in channels.items() if self._commands.monitor(identifier, title)]
         # The account stays in a channel taken out of the folder by hand: only the bot's removals leave
