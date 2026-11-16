@@ -10,6 +10,7 @@ import re
 from collections.abc import Callable, Mapping
 from types import MappingProxyType
 from typing import NamedTuple
+from urllib.parse import urlsplit
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
@@ -107,8 +108,8 @@ def _paragraph_prices(mentions: Callable[[str], bool], paragraph: str) -> list[f
     return own or _flat(prices for _, _, prices in priced)
 
 
-def _product_prices(mentions: Callable[[str], bool], text: str, priced_below: bool) -> list[float]:
-    """Prices of the paragraphs naming the product, since a post can list several products each with its own price.
+def _product_prices(mentions: Callable[[str], bool], text: str, priced_below: bool) -> list[tuple[str, float]]:
+    """(paragraph, price) for the prices of the paragraphs naming the product, since a post can list several products each with its own price.
 
     When they have none and priced_below (a name: a banner, then the name, then the price), the paragraphs from
     the first one naming it on. Else the whole message: a link in its own paragraph or in a URL button, or
@@ -116,13 +117,27 @@ def _product_prices(mentions: Callable[[str], bool], text: str, priced_below: bo
     shortcut: a product named without a price below other products' paragraphs gets their prices (#77), as it
     reads the same as a variant listed under its product's price; revisit if channels start posting it.
     """
-    paragraphs = [(mentions(paragraph), _paragraph_prices(mentions, paragraph)) for paragraph in _PARAGRAPH_BREAK.split(text)]
-    first = next((i for i, (named, _) in enumerate(paragraphs) if named), len(paragraphs))
+    paragraphs = [(p, mentions(p), _paragraph_prices(mentions, p)) for p in _PARAGRAPH_BREAK.split(text)]
+    first = next((i for i, (_, named, _) in enumerate(paragraphs) if named), len(paragraphs))
+
+    def flat(chosen):
+        return [(paragraph, price) for paragraph, _, prices in chosen for price in prices]
+
     return (
-        _flat(prices for named, prices in paragraphs if named)
-        or (_flat(prices for _, prices in paragraphs[first:]) if priced_below else [])
-        or _flat(prices for _, prices in paragraphs)
+        flat(p for p in paragraphs if p[1])
+        or (flat(paragraphs[first:]) if priced_below else [])
+        or flat(paragraphs)
     )
+
+
+def _offer_urls(text: str) -> list[str]:
+    """URLs of text that can be the offer: images (link previews, price charts) and Telegram's own pages
+    (disclaimers, channel promos) never are."""
+    return [
+        url for url in urls_in_text(text)
+        if (urlsplit(url).hostname or "").lower() not in {"t.me", "telegra.ph"}
+        and not urlsplit(url).path.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".gif"))
+    ]
 
 
 def check_product_match(product: Product, message_text: str, asin_by_url: Mapping[str, str] = MappingProxyType({})) -> dict | None:
@@ -144,17 +159,15 @@ def check_product_match(product: Product, message_text: str, asin_by_url: Mappin
     if not by_name and not links:
         return None
 
+    prices = _product_prices(names if by_name else links_to, message_text, priced_below=by_name)
+    paragraph, price = min(prices, key=lambda p: p[1], default=(message_text, None))
+    offer_url = next(iter(_offer_urls(paragraph) or _offer_urls(message_text)), None)
     if product.target_price is not None:
-        prices = _product_prices(names if by_name else links_to, message_text, priced_below=by_name)
-        if not prices or min(prices) > product.target_price:
+        if price is None or price > product.target_price:
             return None
-        return {
-            "matched": True,
-            "price_found": min(prices),
-            "target_price": product.target_price,
-        }
+        return {"matched": True, "price_found": price, "target_price": product.target_price, "offer_url": offer_url}
 
-    return {"matched": True, "price_found": None, "target_price": None}
+    return {"matched": True, "price_found": None, "target_price": None, "offer_url": offer_url}
 
 
 def build_message_link(channel_username: str | None, channel_id: int | None, message_id: int) -> str | None:
@@ -173,8 +186,9 @@ def build_message_link(channel_username: str | None, channel_id: int | None, mes
 class MatchRecorder:
     """Decide whether a message matches a product, record it in PriceHistory and notify the owner."""
 
-    def __init__(self, bot_client: TelegramClient | None, db_session_factory: sessionmaker):
+    def __init__(self, bot_client: TelegramClient | None, db_session_factory: sessionmaker, user_client: TelegramClient | None = None):
         self.bot_client = bot_client
+        self.user_client = user_client  # its account is the owner's
         self._session_factory = db_session_factory
         self._last_asin_by_url: tuple[str | None, dict[str, str]] = (None, {})
 
@@ -187,6 +201,15 @@ class MatchRecorder:
     def _is_active(self, user_id: int) -> bool:
         with self._session_factory() as session:
             return session.query(User.id).filter_by(user_id=user_id, paused=False).first() is not None
+
+    async def _can_open(self, user_id: int, message_link: str | None) -> bool:
+        """Whether the user can open the post link: a private channel's opens only for its members, the owner."""
+        if not message_link:
+            return False
+        if not message_link.startswith("https://t.me/c/"):
+            return True
+        # input_peer: Telethon caches it, no request per notification
+        return self.user_client is not None and (await self.user_client.get_me(input_peer=True)).user_id == user_id
 
     async def record(self, product: Product, text: MessageText, channel_name: str, message_link: str | None, source: MatchSource) -> bool:
         """Return True if the message matched the product and the match was recorded."""
@@ -225,11 +248,12 @@ class MatchRecorder:
             return True
 
         price_line = t(notification.price_key, lang, price=result["price_found"], target=result["target_price"]) if result["price_found"] is not None else ""
-        link_line = t("notify_link_line", lang, link=message_link) if message_link else ""
+        offer_line = t("notify_offer_line", lang, url=result["offer_url"]) if result["offer_url"] else ""
+        link_line = t("notify_link_line", lang, link=message_link) if await self._can_open(product.user_id, message_link) else ""
         message = t(
             notification.match_key, lang,
             product=product.name, channel=channel_name,
-            price_line=price_line, text=text.quote[:notification.text_limit], link_line=link_line,
+            price_line=price_line, text=text.quote[:notification.text_limit], offer_line=offer_line, link_line=link_line,
         )
         try:
             # No parse mode: the quoted post may contain * and _, and a cut quote must not leave an entity open.

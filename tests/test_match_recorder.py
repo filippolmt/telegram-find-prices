@@ -2,12 +2,22 @@
 Tests for MatchRecorder: the match/record/notify path shared by realtime and backfill.
 """
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from telethon.tl.custom.message import Message
+from telethon.tl.types import (
+    InlineButtonTypeUrl,
+    KeyboardInlineButton,
+    KeyboardInlineButtonRow,
+    MessageEntityTextUrl,
+    PeerChannel,
+    ReplyInlineMarkup,
+)
 
 import match_recorder
-from match_recorder import MatchRecorder, MessageText
+from match_recorder import MatchRecorder, MessageText, message_text
 from models import PriceHistory, Product, User
 
 LINK = "https://t.me/deals/7"
@@ -180,3 +190,74 @@ async def test_links_resolved_once_per_message_for_several_asin_products(db_sess
     assert await recorder.record(first, text, "Deals", LINK, "realtime") is True
     assert await recorder.record(second, text, "Deals", LINK, "realtime") is False
     assert len(parsed) == 1
+
+
+def _post(text, entities=(), buttons=()):
+    return Message(
+        id=7, peer_id=PeerChannel(123), message=text, entities=list(entities),
+        reply_markup=ReplyInlineMarkup([KeyboardInlineButtonRow([KeyboardInlineButton("Compra", InlineButtonTypeUrl(url)) for url in buttons])]) if buttons else None,
+    )
+
+
+async def _offer_line(db_session_factory, post, name="iPhone 15"):
+    recorder, product, bot_client = _setup(db_session_factory, name=name)
+
+    assert await recorder.record(product, message_text(post), "Deals", LINK, "realtime") is True
+
+    lines = [line for line in bot_client.send_message.await_args.args[1].split("\n") if line.startswith("Offer:")]
+    return lines
+
+
+async def test_offer_is_the_link_in_the_products_paragraph(db_session_factory):
+    post = _post("🔥 Offerte\n\nAirPods 99€ https://amzn.eu/d/airpods\n\niPhone 15 499€\nhttps://amzn.eu/d/iphone")
+
+    assert await _offer_line(db_session_factory, post) == ["Offer: https://amzn.eu/d/iphone"]
+
+
+async def test_offer_is_a_hidden_link(db_session_factory):
+    text = "AirPods 99€\n\n🔥 iPhone 15 499€\n👉 Vai all'offerta"
+    # Telegram offsets count UTF-16 units: the emoji before the link text counts two
+    post = _post(text, [MessageEntityTextUrl(offset=text.index("Vai") + 2, length=14, url="https://amzn.eu/d/iphone")])
+
+    assert await _offer_line(db_session_factory, post) == ["Offer: https://amzn.eu/d/iphone"]
+
+
+async def test_offer_is_a_url_button(db_session_factory):
+    post = _post("iPhone 15 a 499€", buttons=["https://amzn.eu/d/iphone"])
+
+    assert await _offer_line(db_session_factory, post) == ["Offer: https://amzn.eu/d/iphone"]
+
+
+async def test_post_without_urls_has_no_offer(db_session_factory):
+    assert await _offer_line(db_session_factory, _post("iPhone 15 a 499€")) == []
+
+
+PRIVATE_LINK = "https://t.me/c/123/7"
+
+
+@pytest.mark.parametrize("owner_id, shown", [(100, True), (200, False)])
+async def test_private_post_link_is_shown_only_to_the_owner(db_session_factory, owner_id, shown):
+    _, product, bot_client = _setup(db_session_factory)
+    user_client = MagicMock()
+    user_client.get_me = AsyncMock(return_value=SimpleNamespace(user_id=owner_id))
+    recorder = MatchRecorder(bot_client, db_session_factory, user_client)
+
+    assert await recorder.record(product, _text("iPhone 15 a 499€"), "Deals", PRIVATE_LINK, "realtime") is True
+
+    assert (PRIVATE_LINK in bot_client.send_message.await_args.args[1]) is shown
+
+
+@pytest.mark.parametrize(
+    "text, links",
+    [
+        # Link preview: an image behind an invisible character (RisparmiareSulWeb, pallok, CouponsItalia)
+        ("\u2063iPhone 15\n\n🌐 https://amzlink.to/iphone\n\n💰 699€ 👉 499€", [(0, 1, "https://i.ibb.co/x/image.jpg")]),
+        # A disclaimer page before the offer link, both outside the price's paragraph
+        ("iPhone 15\n\n💰 499 € invece di 699 €\n\n🛒 #AMAZON - Disclaimer\n\n👉🏻 VAI ALL'OFFERTA",
+         [(50, 10, "https://telegra.ph/Disclaimer-prodotti"), (67, 15, "https://amzlink.to/iphone")]),
+    ],
+)
+async def test_images_and_telegram_pages_are_no_offer(db_session_factory, text, links):
+    post = _post(text, [MessageEntityTextUrl(offset=o, length=n, url=u) for o, n, u in links])
+
+    assert await _offer_line(db_session_factory, post) == ["Offer: https://amzlink.to/iphone"]

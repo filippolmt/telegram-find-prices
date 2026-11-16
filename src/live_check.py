@@ -29,7 +29,7 @@ USER_ID = 1
 
 class PrintBot:
     async def send_message(self, user_id, text, parse_mode=None):
-        print(f"\n--- notification to user {user_id} ---\n{text[:400]}\n---")
+        print(f"\n--- notification to user {user_id} ---\n{text}\n---")
 
 
 def _parse_product(spec: str) -> Product:
@@ -70,6 +70,7 @@ async def main() -> int:
         handlers = []
         fake_listener_client = MagicMock()
         fake_listener_client.on = lambda _event: lambda fn: handlers.append(fn) or fn
+        fake_listener_client.get_me = client.get_me  # the owner, for private channels' post links
         ChannelListener(fake_listener_client, bot, session_factory).register()
 
         for identifier, entity in zip(args.channel, entities, strict=True):
