@@ -81,15 +81,28 @@ async def test_gate_rejects_unauthorized_sender_without_persisting(monkeypatch, 
         assert session.query(User).count() == 0
 
 
-async def test_gate_asks_sender_without_username_to_start_first(monkeypatch, db_session_factory):
+async def test_gate_runs_flow_for_authorized_sender_without_username(monkeypatch, db_session_factory):
     bot = make_bot(monkeypatch, db_session_factory, [1], False)
     flow, calls = _recording_flow()
     event = chat_event(1, username=None)
 
     await bot._gate(flow)(event)
 
-    assert event.replies == [t("start_first", "en")]
+    assert event.replies == []
+    assert [(c.user_id, c.username) for c in calls] == [(1, None)]
+
+
+async def test_gate_rejects_unauthorized_sender_without_username_without_persisting(monkeypatch, db_session_factory):
+    bot = make_bot(monkeypatch, db_session_factory, [1], False)
+    flow, calls = _recording_flow()
+    event = chat_event(2, username=None)
+
+    await bot._gate(flow)(event)
+
+    assert event.replies == [t("not_authorized", "en")]
     assert calls == []
+    with db_session_factory() as session:
+        assert session.query(User).count() == 0
 
 
 async def test_gate_runs_flow_with_context_for_authorized_sender(monkeypatch, db_session_factory):
@@ -105,13 +118,15 @@ async def test_gate_runs_flow_with_context_for_authorized_sender(monkeypatch, db
         assert session.query(User).filter_by(user_id=1).one().username == "owner"
 
 
-async def test_start_without_username_is_not_authorized(monkeypatch, db_session_factory):
+async def test_start_without_username_registers_and_greets_by_first_name(monkeypatch, db_session_factory):
     bot = registered_bot(monkeypatch, db_session_factory)
-    event = chat_event(1, username=None)
+    event = chat_event(1, username=None, first_name="Bruno")
 
     await bot.bot_client.dispatch("/start", event)
 
-    assert event.replies == [t("not_authorized", "en")]
+    assert event.replies == [t("welcome", "en", username="Bruno")]
+    with db_session_factory() as session:
+        assert session.query(User).filter_by(user_id=1).one().username is None
 
 
 async def test_registered_command_runs_flow_for_authorized_sender(monkeypatch, db_session_factory):

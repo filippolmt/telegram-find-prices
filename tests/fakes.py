@@ -16,8 +16,8 @@ def make_bot(monkeypatch, db_session_factory, allowed, allow_all):
     return BotCommands(MagicMock(), MagicMock(), db_session_factory)
 
 
-def sender_event(user_id, username="stranger", lang="en"):
-    sender = SimpleNamespace(username=username, lang_code=lang)
+def sender_event(user_id, username="stranger", lang="en", first_name="Stranger"):
+    sender = SimpleNamespace(username=username, first_name=first_name, lang_code=lang)
 
     async def get_sender():
         return sender
@@ -25,8 +25,8 @@ def sender_event(user_id, username="stranger", lang="en"):
     return SimpleNamespace(sender_id=user_id, get_sender=get_sender)
 
 
-def chat_event(user_id, username="stranger", lang="en"):
-    event = sender_event(user_id, username, lang)
+def chat_event(user_id, username="stranger", lang="en", first_name="Stranger"):
+    event = sender_event(user_id, username, lang, first_name)
     event.replies = []
 
     async def respond(text):

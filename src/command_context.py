@@ -10,5 +10,5 @@ class CommandContext:
     """An identified command sender: what a flow receives once the gate lets them through."""
 
     user_id: int
-    username: str
+    username: str | None
     lang: str
