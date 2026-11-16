@@ -173,7 +173,12 @@ class ChannelChanges:
         done = {ChannelRequestAction.ADD: {i.lower(): label for i, label in entered.items()},
                 ChannelRequestAction.REMOVE: {i.lower(): label for i, label in left.items()}}
         for request in self.requests.pending():
-            label = done[request.action].get((request.identifier or "").lower())
+            identifier = request.identifier
+            if identifier is None and entered:
+                # An invite to a channel the account was not in: now it may be, and the invite names it
+                invite = await self.client_commands.check_invite(request.invite_hash)
+                identifier = invite and invite.identifier
+            label = done[request.action].get((identifier or "").lower())
             if label is None:
                 continue
             await self._answer(request.id, lambda lang, request=request, label=label:

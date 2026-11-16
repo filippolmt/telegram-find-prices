@@ -527,3 +527,17 @@ async def test_owner_reads_requesters_without_a_username_by_their_id(setup):
 
     assert [text for _, text, _ in bot.bot_client.sent] == [
         t("request_owner_add", "en", requester="@friend, user 300", channel="deals")]
+
+
+async def test_two_invites_to_one_channel_are_both_answered_by_one_approval(setup):
+    bot, client = setup(folder(2))
+    client.invites.update({"InviteForFriend": DEALS, "InviteForOther": DEALS})
+    await _request(bot, "/add_channel https://t.me/+InviteForFriend", FRIEND)
+    await _request(bot, "/add_channel https://t.me/+InviteForOther", OTHER)
+    assert [r.identifier for r in bot.channel_requests.pending()] == [None, None]  # not joined: no identifier yet
+
+    await bot.bot_client.press(button_event("approve:1"))
+
+    assert sorted((uid, text) for uid, text, _ in bot.bot_client.sent) == [
+        (uid, t("request_approved_add", "en", channel="Deals (deals)")) for uid in (FRIEND, OTHER)]
+    assert bot.channel_requests.pending() == []

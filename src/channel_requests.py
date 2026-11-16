@@ -34,9 +34,9 @@ class ChannelRequests:
              invite_hash: str | None = None) -> tuple[Filed, ChannelRequest]:
         """File the request, or add the user to the pending one for the same channel.
 
-        shortcut: an invite to a channel the account is not in has no identifier until joined (CheckChatInvite gives
-        none), so it is told apart from a request for the same channel by @username or another invite; approving
-        one answers the others naming the channel. Revisit if duplicate invite requests show up in /requests.
+        An invite to a channel the account is not in has no identifier until joined (CheckChatInvite gives none), so
+        until then it is told apart from a request for the same channel by @username or another invite: the owner
+        sees both, and approving one answers the others (ChannelChanges.answer_requests).
         """
         identifier, title = channel
         with self._session_factory() as session:
