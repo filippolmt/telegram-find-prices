@@ -357,7 +357,10 @@ class BotCommands:
                 await event.respond(t("users_only", DEFAULT_LANGUAGE))
                 return
             if not self._is_authorized(sender.user_id):
-                # Strangers are never written to the DB: rejected before _register
+                # Strangers are never written to the DB: the log is how the owner learns an ID to allow.
+                # The message text is left out: it may hold a link or an invite hash.
+                log.warning("Rejected sender user_id=%s (%s)", sender.user_id,
+                            f"@{sender.username}" if sender.username else "no username")
                 await event.respond(t("not_authorized", sender.lang))
                 return
             self._register(sender)
