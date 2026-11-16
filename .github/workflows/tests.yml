@@ -3,8 +3,8 @@ name: Tests
 on:
   push:
     branches: [main]
+  # Every PR, also one stacked on another branch
   pull_request:
-    branches: [main]
 
 jobs:
   test:

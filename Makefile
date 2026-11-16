@@ -66,9 +66,10 @@ bot-chat:
 
 # Send messages to the dev bot running the working tree (throwaway DB) and print its replies.
 # e.g.: make live-command ARGS='--send "/watch https://www.amazon.it/dp/B0F9LJFWPB" --send "/salta" --send "/salta" --send "/salta"'
+# ENV overrides .env for this run, e.g. the account outside ALLOWED_USERS: make live-command ENV='-e ALLOWED_USERS=1' ARGS='--send "/start"'
 live-command:
 	docker compose stop bot
-	docker compose run --rm -T test python src/live_command.py send $(ARGS); status=$$?; docker compose up -d bot; exit $$status
+	docker compose run --rm -T $(ENV) test python src/live_command.py send $(ARGS); status=$$?; docker compose up -d bot; exit $$status
 
 # Shell inside the container
 shell:
