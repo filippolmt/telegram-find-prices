@@ -57,12 +57,21 @@ async def test_direct_amazon_url_is_not_requested(http):
     assert requested == []
 
 
-async def test_redirect_to_non_amazon_host_is_not_followed(http):
+@pytest.mark.parametrize(
+    "chain",
+    [
+        ["https://link.amazon/abc"],
+        ["https://amzlink.to/abc"],
+        ["https://amzlink.to/abc", "https://r.amzlink.to/?id=1"],
+    ],
+)
+async def test_redirect_to_non_amazon_host_is_not_followed(http, chain):
     redirects, requested = http
-    redirects["https://link.amazon/abc"] = "https://evil.example/dp/B0CXYZ1234"
+    for url, next_url in zip(chain, chain[1:] + ["https://evil.example/dp/B0CXYZ1234"], strict=True):
+        redirects[url] = next_url
 
-    assert await amazon.resolve_amazon_url("https://link.amazon/abc") is None
-    assert requested == ["https://link.amazon/abc"]
+    assert await amazon.resolve_amazon_url(chain[0]) is None
+    assert requested == chain
 
 
 async def test_non_allowlisted_short_link_is_not_requested(http):
@@ -115,14 +124,39 @@ async def test_first_product_link_in_watch_answer(http, answer, expected):
     assert await amazon.first_product_link(answer) == expected
 
 
-async def test_intermediate_host_followed_only_after_a_short_link(http):
+@pytest.mark.parametrize(
+    "short_link, redirector, asin",
+    [
+        ("https://link.amazon/B01abc", "https://amzlinks.in/B01abc", "B0GL22B4VQ"),
+        # Real chain (Nov 2026): amzlink.to/<code> -> r.amzlink.to/?... -> amazon.it/dp/<ASIN>
+        ("https://amzlink.to/az0kGqTudJpp2", "https://r.amzlink.to/?id=1", "B0FJM47NB2"),
+    ],
+)
+async def test_intermediate_host_followed_only_after_a_short_link(http, short_link, redirector, asin):
     redirects, requested = http
-    redirects["https://link.amazon/B01abc"] = "https://amzlinks.in/B01abc"
-    redirects["https://amzlinks.in/B01abc"] = "https://www.amazon.it/dp/B0GL22B4VQ?tag=aff-21"
+    redirects[short_link] = redirector
+    redirects[redirector] = f"https://www.amazon.it/dp/{asin}?tag=aff-21"
 
-    assert await amazon.resolve_amazon_url("https://link.amazon/B01abc") == "https://www.amazon.it/dp/B0GL22B4VQ?tag=aff-21"
-    assert await amazon.resolve_amazon_url("https://amzlinks.in/other") is None
-    assert requested == ["https://link.amazon/B01abc", "https://amzlinks.in/B01abc"]
+    assert await amazon.resolve_amazon_url(short_link) == f"https://www.amazon.it/dp/{asin}?tag=aff-21"
+    assert await amazon.resolve_amazon_url(redirector + "&direct=1") is None
+    assert requested == [short_link, redirector]
+
+
+@pytest.mark.parametrize(
+    "short_link, redirector",
+    [
+        ("https://amzn.to/x", "https://r.amzlink.to/?id=1"),
+        ("https://link.amazon/x", "https://r.amzlink.to/?id=1"),
+        ("https://amzlink.to/x", "https://amzlinks.in/a"),
+    ],
+)
+async def test_intermediate_host_followed_only_after_its_own_short_link(http, short_link, redirector):
+    redirects, requested = http
+    redirects[short_link] = redirector
+    redirects[redirector] = "https://www.amazon.it/dp/B0CXYZ1234"
+
+    assert await amazon.resolve_amazon_url(short_link) is None
+    assert requested == [short_link]
 
 
 async def test_transient_failure_is_not_cached(http, monkeypatch):
