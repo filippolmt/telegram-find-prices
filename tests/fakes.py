@@ -183,6 +183,11 @@ class FakeBotClient:
     def __init__(self):
         self.handlers = []
         self.sent = []  # (user_id, text, buttons)
+        self.requests = []  # raw Telegram requests, as client(request) sends them
+
+    async def __call__(self, request):
+        self.requests.append(request)
+        return True
 
     async def send_message(self, user_id, text, buttons=None, parse_mode=None):
         self.sent.append((user_id, text, buttons))

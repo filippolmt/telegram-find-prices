@@ -12,6 +12,9 @@ from typing import Optional
 from sqlalchemy import and_, func, or_
 from sqlalchemy.orm import sessionmaker
 from telethon import Button, TelegramClient, events
+from telethon.errors import RPCError
+from telethon.tl.functions.bots import SetBotCommandsRequest
+from telethon.tl.types import BotCommand, BotCommandScopeUsers
 
 from amazon import first_product_link, slug_keywords, urls_in_text
 from channel_folder import ChannelFolder
@@ -32,7 +35,7 @@ from models import (
 )
 from price_parser import parse_target_price
 from prompts import NO_KEYWORDS, SKIP_KEYWORDS, YES_KEYWORDS, conversation
-from translations import DEFAULT_LANGUAGE, resolve_lang, t
+from translations import DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES, resolve_lang, t
 
 log = logging.getLogger(__name__)
 
@@ -369,14 +372,30 @@ class BotCommands:
         """Register a flow for /name behind the gate."""
 
         def register(flow: CommandFlow) -> CommandFlow:
+            self._command_names.append(name)
             pattern = rf"^/{name}{self._addressed_to_me}(?:\s|$)"
             self.bot_client.on(events.NewMessage(pattern=pattern))(self._gate(flow))
             return flow
 
         return register
 
+    async def publish_commands(self) -> None:
+        """Set the command menu users see in private chats to the registered commands, in every language.
+
+        Replaces the list pasted in BotFather; a failure is logged, the bot runs without an up-to-date menu.
+        """
+        for lang in SUPPORTED_LANGUAGES:
+            commands = [BotCommand(name, t(f"command_{name}", lang)) for name in self._command_names]
+            try:
+                # lang_code "": the menu for every language without its own
+                await self.bot_client(SetBotCommandsRequest(
+                    BotCommandScopeUsers(), "" if lang == DEFAULT_LANGUAGE else lang, commands))
+            except RPCError as e:
+                log.error("Command list not published for language '%s': %s", lang, e)
+
     def register_commands(self, bot_username: str = "") -> None:
         """Register all bot command handlers; also as /name@bot_username, the form group chats send."""
+        self._command_names: list[str] = []
         # Telegram usernames are case-insensitive; a command for another bot matches nothing
         self._addressed_to_me = rf"(?i:@{re.escape(bot_username)})?" if bot_username else ""
 

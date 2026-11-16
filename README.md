@@ -98,25 +98,9 @@ make auth
 
 This creates session files in `data/` that are reused on subsequent runs. Simpler for local development.
 
-### 4. Register bot commands with BotFather
+### 4. Bot commands
 
-Open [@BotFather](https://t.me/BotFather), select your bot with `/mybots`, then **Edit Bot** > **Edit Commands** and paste:
-
-```
-start - Register your account
-add_channel - Add a channel to monitor
-remove_channel - Remove a channel from monitoring
-list_channels - Show the monitored channels
-requests - Pending channel requests (owner)
-watch - Add a product to monitor
-list_products - Show your monitored products
-unwatch - Remove a product from monitoring
-history - View price history for a product
-pause - Pause notifications
-resume - Resume notifications
-stats - View your statistics
-list_categories - Show products grouped by category
-```
+The bot sets its command menu itself at startup, in English and Italian: nothing to paste in BotFather. In private chats it takes precedence over a list pasted there.
 
 ### 5. Start the bot
 
