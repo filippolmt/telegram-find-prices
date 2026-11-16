@@ -8,6 +8,10 @@ Users watch products and get notified when a Telegram channel they follow posts 
 A channel message that names a watched product, or links to its Amazon page, and, when the product has a target price, quotes a price at or below it; in a post listing several products, the price is taken from the paragraphs (or, in a one-per-line list, the lines) naming the product or holding its link. Every match is recorded in the user's price history, and stays there only while the product is watched: unwatching a product removes its matches. A product name without letters or digits names nothing, so that product matches only by link.
 _Avoid_: Hit, alert, offer
 
+**Offer link**:
+The link to the matched product that a match notification carries: the one on the product's own lines of its post, else the first one of the post. Images and Telegram's own pages are never an offer link.
+_Avoid_: Product link, deal link
+
 **Realtime**:
 The source of matches found in new messages as they arrive in a followed channel.
 _Avoid_: Live, listener
