@@ -56,15 +56,23 @@ def channel_label(identifier: str, title: str | None) -> str:
     return f"{title} ({identifier})" if title else identifier
 
 
-def stored_identifier(chat) -> str:
-    """The identifier a Telegram channel is stored by: its username, else its bare numeric id."""
-    return getattr(chat, "username", None) or str(chat.id)
+class ChannelIdentifier(str):
+    """How a channel is stored (Channel.identifier) and found: its username, else its bare numeric id; a marked
+    id ("-100…") given on the command line works too. Usernames compare case-insensitively (identifier_in)."""
+
+    @classmethod
+    def of(cls, chat) -> "ChannelIdentifier":
+        return cls(getattr(chat, "username", None) or str(chat.id))
+
+    @property
+    def peer(self) -> str | int:
+        """What Telethon resolves: the username, or the numeric id (looked up in the session's entity cache)."""
+        return int(self) if self.lstrip("-").isdigit() else str(self)
 
 
 class ChannelInfo(NamedTuple):
-    """A channel as Channel.identifier stores it, and its title; identifier None for an invite to a channel the
-    account is not in."""
-    identifier: str | None
+    """A channel's identifier and title; identifier None for an invite to a channel the account is not in."""
+    identifier: ChannelIdentifier | None
     title: str | None
 
     @property

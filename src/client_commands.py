@@ -24,21 +24,16 @@ from match_recorder import (
 )
 from models import (
     Channel,
+    ChannelIdentifier,
     ChannelInfo,
     MatchSource,
     channel_label,
     identifier_in,
-    stored_identifier,
 )
 
 log = logging.getLogger(__name__)
 
 BACKFILL_FLOOD_RETRIES = 3
-
-
-def peer_key(identifier: str) -> str | int:
-    """What Telethon resolves a Channel.identifier by: a username, or a private channel's bare numeric id."""
-    return int(identifier) if identifier.isdigit() else identifier
 
 
 class ClientCommands:
@@ -63,7 +58,7 @@ class ClientCommands:
 
     def monitored_channels(self) -> list[ChannelInfo]:
         with self._session_factory() as session:
-            return [ChannelInfo(c.identifier, c.title) for c in session.query(Channel).order_by(Channel.id)]
+            return [ChannelInfo(ChannelIdentifier(c.identifier), c.title) for c in session.query(Channel).order_by(Channel.id)]
 
     def list_channels(self) -> list[str]:
         """Labels of the monitored channels: 'title (identifier)', or the identifier alone."""
@@ -83,7 +78,7 @@ class ClientCommands:
                     result = await self.client(CheckChatInviteRequest(invite_hash))
                     chat = result.chat
 
-                db_identifier = stored_identifier(chat)
+                db_identifier = ChannelIdentifier.of(chat)
                 channel_title = getattr(chat, "title", None)
             else:
                 await self.client(JoinChannelRequest(channel_identifier))
@@ -113,13 +108,13 @@ class ClientCommands:
         chat = getattr(result, "chat", None)
         if chat is None:
             return ChannelInfo(None, getattr(result, "title", None))
-        return ChannelInfo(stored_identifier(chat), getattr(chat, "title", None))
+        return ChannelInfo(ChannelIdentifier.of(chat), getattr(chat, "title", None))
 
     def find_channel(self, identifier: str) -> ChannelInfo | None:
         """The monitored channel with this identifier."""
         with self._session_factory() as session:
             channel = self._find(session, identifier)
-            return channel and ChannelInfo(channel.identifier, channel.title)
+            return channel and ChannelInfo(ChannelIdentifier(channel.identifier), channel.title)
 
     @staticmethod
     def _find(session, identifier: str) -> Channel | None:
@@ -173,11 +168,7 @@ class ClientCommands:
 
         matches_found = 0
         try:
-            # Resolve entity: numeric ID or username
-            try:
-                entity = await self.client.get_entity(int(channel_identifier))
-            except (ValueError, TypeError):
-                entity = await self.client.get_entity(channel_identifier)
+            entity = await self.client.get_entity(ChannelIdentifier(channel_identifier).peer)
             channel_name = getattr(entity, "title", channel_identifier)
             channel_username = getattr(entity, "username", None)
             channel_id = getattr(entity, "id", None)
@@ -222,7 +213,7 @@ class ClientCommands:
     async def leave_channel(self, channel_identifier: str) -> bool:
         """Make the account leave a channel; False (logged) if Telegram refused."""
         try:
-            await self.client(LeaveChannelRequest(peer_key(channel_identifier)))
+            await self.client(LeaveChannelRequest(ChannelIdentifier(channel_identifier).peer))
             return True
         except RPCError as e:
             log.error("LeaveChannel error for '%s': %s", channel_identifier, e)
