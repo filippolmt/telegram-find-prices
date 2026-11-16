@@ -6,7 +6,7 @@ import pytest
 
 from config import parse_allowed_users
 from models import User
-from tests.fakes import chat_event, make_bot, registered_bot
+from tests.fakes import chat_event, conversation_event, make_bot, registered_bot
 from translations import t
 
 
@@ -162,3 +162,17 @@ async def test_registered_command_runs_flow_for_authorized_sender(monkeypatch, d
 
     with db_session_factory() as session:
         assert session.query(User).filter_by(user_id=1).one().paused is True
+
+
+async def test_rejected_sender_is_logged_with_its_id_and_not_stored(monkeypatch, db_session_factory, caplog):
+    bot = registered_bot(monkeypatch, db_session_factory)  # allows user 1 only
+    event = conversation_event([], user_id=987654321, username="newcomer")
+
+    await bot.bot_client.dispatch("/add_channel https://t.me/+SecretInviteHash", event)
+
+    assert event.replies == [t("not_authorized", "en")]
+    rejected = [r for r in caplog.records if r.levelname == "WARNING" and "Rejected sender" in r.getMessage()]
+    assert [r.getMessage() for r in rejected] == ["Rejected sender user_id=987654321 (@newcomer)"]
+    assert "SecretInviteHash" not in caplog.text
+    with db_session_factory() as session:
+        assert session.get(User, 987654321) is None
